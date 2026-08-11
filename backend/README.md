@@ -133,6 +133,46 @@ uvicorn app.main:app --reload --port 8000                  # real data
 
 Docs at `http://localhost:8000/docs`.
 
+## Configuration
+
+All settings are environment variables. The defaults are the right ones
+for localhost and the wrong ones for a deploy — see `DEPLOY.md`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DEMO_MODE` | `false` | serve `demo.db` instead of `real.db` |
+| `DATABASE_URL` | `sqlite:///data/<db>` | override for a mounted disk or another engine |
+| `ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | comma-separated CORS allowlist |
+| `API_KEY` | unset | when set, writes require a matching `X-API-Key` header |
+| `READ_ONLY` | `false` | when true, all writes return 403 regardless of `API_KEY` |
+
+The API prints which database and write policy are active at startup:
+
+```
+[api] database: real | writes: OPEN — no API_KEY set, safe only if this is localhost-only
+[api] CORS allow_origins: ['http://localhost:5173', 'http://127.0.0.1:5173']
+```
+
+That line exists because every one of these is an env var, so a
+misconfigured instance is otherwise indistinguishable from a correct one
+until something goes wrong.
+
+Note that an API key shipped in a browser bundle is not secret — it raises
+the bar against drive-by scanners and nothing more. For a public demo the
+honest control is `READ_ONLY`, which has no secret to leak.
+
+## Tests
+
+```bash
+pip3 install -r requirements-dev.txt
+python3 -m pytest tests/ -q
+```
+
+51 tests, no network access required. They point `DATABASE_URL` at a
+temporary file before importing anything from `app`, so the suite can
+never touch `real.db` — `app.main` calls `create_all()` at import time,
+so that ordering is load-bearing.
+
 ## Endpoints
 
 | Method | Path                      | Purpose                                                        |
