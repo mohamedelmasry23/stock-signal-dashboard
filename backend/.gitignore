@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+
+# real financial data — never commit these
+data/*.db
+data/imports/*.csv
+data/imports/processed/
+
+.env
+.venv/
+venv/

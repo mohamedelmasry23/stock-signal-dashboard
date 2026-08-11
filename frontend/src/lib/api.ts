@@ -1,0 +1,136 @@
+// Types mirror backend/app/schemas.py. Fields the backend marks Optional
+// are nullable here — notably Signal on a holding, which is null for a
+// ticker added since the last pipeline run (it has no computed signal yet).
+
+export interface Signal {
+  ticker: string
+  as_of_date: string | null
+  close: number | null
+  donchian_high: number | null
+  donchian_low: number | null
+  atr: number | null
+  stop_distance: number | null
+  entry_signal: boolean
+  exit_signal: boolean
+  suggested_shares: number | null
+  updated_at: string | null
+}
+
+export interface Holding {
+  ticker: string
+  shares: number | null
+  added_at: string
+  signal: Signal | null
+}
+
+export interface EntryCandidate {
+  ticker: string
+  close: number
+  donchian_high: number | null
+  atr: number | null
+  suggested_shares: number | null
+  breakout_strength: number | null
+  as_of_date: string | null
+}
+
+export interface Status {
+  demo_mode: boolean
+  signals_last_updated: string | null
+}
+
+export type EquitySource = 'override' | 'derived' | 'default'
+
+export interface Account {
+  equity: number
+  equity_source: EquitySource
+  positions_value: number
+  cash_balance: number
+  risk_fraction: number
+  equity_override: number | null
+  risk_dollars: number
+  unvalued_holdings: number
+}
+
+export interface AccountPatch {
+  cash_balance?: number
+  risk_fraction?: number
+  // null clears the override, returning equity to the derived figure.
+  // Must be sent explicitly — omitting the key leaves it unchanged.
+  equity_override?: number | null
+}
+
+export class ApiError extends Error {
+  // Declared and assigned explicitly rather than as a constructor parameter
+  // property: this template enables `erasableSyntaxOnly`, which rejects
+  // TS-only syntax that can't be stripped without changing runtime behaviour.
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(`/api${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...init,
+    })
+  } catch {
+    // fetch only rejects on network-level failure — almost always the
+    // backend not running. Say that rather than surfacing "Failed to fetch".
+    throw new ApiError('Cannot reach the API. Is the backend running on port 8000?', 0)
+  }
+
+  if (!res.ok) {
+    // In dev the Vite proxy sits in front of the API, so a stopped backend
+    // surfaces as a real 502/503/504 response rather than a failed fetch —
+    // the catch above never fires and the user would just see "Bad
+    // Gateway". Map the gateway codes onto the same explanation.
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      throw new ApiError('Cannot reach the API. Is the backend running on port 8000?', res.status)
+    }
+
+    // FastAPI puts the useful message in `detail` (e.g. "AAPL is already
+    // in holdings"); fall back to the status line if the body isn't JSON.
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      if (typeof body?.detail === 'string') detail = body.detail
+    } catch {
+      /* non-JSON error body — keep the status line */
+    }
+    throw new ApiError(detail, res.status)
+  }
+
+  if (res.status === 204) return undefined as T
+  return res.json() as Promise<T>
+}
+
+export const api = {
+  status: () => request<Status>('/status'),
+  holdings: () => request<Holding[]>('/holdings'),
+  entryCandidates: (limit = 10) => request<EntryCandidate[]>(`/entry-candidates?limit=${limit}`),
+  account: () => request<Account>('/account'),
+
+  updateAccount: (patch: AccountPatch) =>
+    request<Account>('/account', { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  addHolding: (ticker: string, shares: number | null) =>
+    request<Holding>('/holdings', {
+      method: 'POST',
+      body: JSON.stringify({ ticker, shares }),
+    }),
+
+  updateShares: (ticker: string, shares: number | null) =>
+    request<Holding>(`/holdings/${encodeURIComponent(ticker)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ shares }),
+    }),
+
+  removeHolding: (ticker: string) =>
+    request<void>(`/holdings/${encodeURIComponent(ticker)}`, { method: 'DELETE' }),
+}

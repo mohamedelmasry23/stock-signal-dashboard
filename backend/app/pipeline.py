@@ -1,0 +1,255 @@
+"""
+Daily signal pipeline.
+
+First checks data/imports/ for a Wealthsimple CSV export and, if one's
+there, resyncs the `holdings` table from it (see app/import_holdings.py
+for the full explanation of that flow). Then scans the universe (S&P 500
+constituents + commodity ETFs) plus any currently-held tickers — so exit
+signals still work even for something outside the default universe —
+computes Donchian/ATR signals via the shared compute_signal_frame(), and
+upserts the results into `signals`.
+
+Run once, shortly after US market close: that's when today's close is
+finalized and tomorrow's trigger levels are locked in (see the
+"Signal timing model" note in the original brief). See README.md for
+cron / Task Scheduler setup.
+
+    python -m app.pipeline
+
+Refuses to run with DEMO_MODE=true — this pipeline pulls real market
+data and writes real computed signals; that shouldn't land in the fake
+demo database. Use app.seed_demo for fake data instead.
+"""
+
+import io
+import sys
+import time
+from typing import Callable, Dict, List
+
+import pandas as pd
+import requests
+import yfinance as yf
+
+from .account import get_settings, resolve_equity, suggested_shares
+from .config import DEMO_MODE
+from .database import Base, SessionLocal, engine
+from .import_holdings import run_import
+from .models import Holding, Signal, Universe
+from .signals import compute_signal_frame
+from .timeutil import utcnow
+
+# Commodity ETFs, grouped by sub-class. These are the whole commodity
+# side of the scan universe — the S&P 500 half comes from Wikipedia.
+# Note USO/BNO (WTI vs Brent) and DBC's energy weighting are strongly
+# correlated, so an oil breakout tends to surface several of these at
+# once and can crowd the entry-candidates list; trim if that annoys you.
+COMMODITY_TICKERS = [
+    # precious metals
+    "GLD",   # gold
+    "SLV",   # silver
+    "PPLT",  # platinum
+    "PALL",  # palladium
+    # energy
+    "USO",   # WTI crude
+    "BNO",   # Brent crude
+    "UNG",   # natural gas
+    "UGA",   # gasoline
+    # industrial metals
+    "CPER",  # copper
+    # agriculture
+    "DBA",   # broad agriculture
+    # broad basket
+    "DBC",   # diversified commodity index
+]
+CHUNK_SIZE = 50
+PERIOD = "2y"
+PAUSE_BETWEEN_CHUNKS_SEC = 1.0
+
+SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+# Wikipedia's user-agent policy: identify the tool, not a browser spoof.
+USER_AGENT = "StockSignalDashboard/1.0 (personal portfolio project)"
+
+
+def get_sp500_tickers() -> List[str]:
+    """Current S&P 500 constituents from Wikipedia. Falls back to an
+    empty list (with a warning) if the fetch fails — commodities and
+    holdings still get scanned either way.
+
+    Fetched via requests rather than handing the URL straight to
+    pandas.read_html: Wikipedia rejects urllib's default user-agent with
+    a 403, so a descriptive UA (their API etiquette policy) is required."""
+    try:
+        resp = requests.get(SP500_URL, headers={"User-Agent": USER_AGENT}, timeout=30)
+        resp.raise_for_status()
+        tables = pd.read_html(io.StringIO(resp.text))
+        tickers = tables[0]["Symbol"].tolist()
+        # Yahoo uses '-' where Wikipedia uses '.' for share classes (e.g. BRK.B -> BRK-B)
+        return [str(t).replace(".", "-") for t in tickers]
+    except Exception as e:
+        print(f"[pipeline] WARNING: couldn't fetch S&P 500 list ({e}); skipping equities.")
+        return []
+
+
+def get_commodity_tickers() -> List[str]:
+    return list(COMMODITY_TICKERS)
+
+
+def fetch_ohlc_batch(tickers: List[str], period: str = PERIOD) -> Dict[str, pd.DataFrame]:
+    """Downloads OHLC history for a batch of tickers in one yfinance call
+    and reshapes into {ticker: OHLC frame}, matching what
+    compute_signal_frame() expects — same shape as the original
+    single-ticker brief script, just handling more than one ticker."""
+    if not tickers:
+        return {}
+
+    raw = yf.download(
+        tickers, period=period, interval="1d",
+        auto_adjust=False, progress=False, group_by="column",
+    )
+
+    result = {}
+    for t in tickers:
+        try:
+            frame = pd.DataFrame({
+                "Open": raw["Open"][t],
+                "High": raw["High"][t],
+                "Low": raw["Low"][t],
+                "Close": raw["Close"][t],
+                "Volume": raw["Volume"][t],
+            }).dropna()
+            if not frame.empty:
+                result[t] = frame
+        except Exception:
+            continue  # delisted / bad ticker / no data — skip, don't kill the run
+    return result
+
+
+def upsert_signal(db, ticker: str, sig_row: pd.Series) -> None:
+    def clean(v):
+        return None if pd.isna(v) else float(v)
+
+    as_of = sig_row.name.date() if hasattr(sig_row.name, "date") else sig_row.name
+    values = dict(
+        as_of_date=as_of,
+        close=clean(sig_row["Close"]),
+        donchian_high=clean(sig_row["DonchianHigh_N"]),
+        donchian_low=clean(sig_row["DonchianLow_M"]),
+        atr=clean(sig_row["ATR"]),
+        stop_distance=clean(sig_row["StopDistance"]),
+        entry_signal=bool(sig_row["EntrySignal"]),
+        exit_signal=bool(sig_row["ExitSignal"]),
+        suggested_shares=clean(sig_row["Shares"]),
+        updated_at=utcnow(),
+    )
+
+    existing = db.query(Signal).filter(Signal.ticker == ticker).first()
+    if existing:
+        for k, v in values.items():
+            setattr(existing, k, v)
+    else:
+        db.add(Signal(ticker=ticker, **values))
+
+
+def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetch_ohlc_batch) -> None:
+    if DEMO_MODE:
+        print(
+            "[pipeline] Refusing to run with DEMO_MODE=true — this pipeline writes real "
+            "computed signals from real market data, which shouldn't land in the fake demo "
+            "database. Unset DEMO_MODE, or use `python -m app.seed_demo` for fake data."
+        )
+        sys.exit(1)
+
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        imported = run_import(db)
+        if imported:
+            print(f"[pipeline] Imported {imported} Wealthsimple CSV file(s) from data/imports/.")
+
+        equities = get_sp500_tickers()
+        commodities = get_commodity_tickers()
+        held = [t for (t,) in db.query(Holding.ticker).all()]
+
+        universe = sorted(set(equities) | set(commodities))
+        # Union with holdings: a held ticker outside the default universe
+        # (e.g. dropped out of the S&P 500) still needs its exit signal
+        # computed — that's a hard requirement from the brief.
+        all_tickers = sorted(set(universe) | set(held))
+
+        print(
+            f"[pipeline] {len(equities)} equities + {len(commodities)} commodities = "
+            f"{len(universe)} in scan universe; {len(held)} held; "
+            f"{len(all_tickers)} tickers to fetch."
+        )
+
+        db.query(Universe).delete()
+        for t in equities:
+            db.add(Universe(ticker=t, asset_class="equity", active=True))
+        for t in commodities:
+            db.add(Universe(ticker=t, asset_class="commodity", active=True))
+        db.commit()
+
+        computed, failed = 0, 0
+        for i in range(0, len(all_tickers), CHUNK_SIZE):
+            chunk = all_tickers[i:i + CHUNK_SIZE]
+            print(f"[pipeline] Fetching {i + 1}-{i + len(chunk)} of {len(all_tickers)}...")
+
+            try:
+                data = fetch_fn(chunk)
+            except Exception as e:
+                print(f"[pipeline] WARNING: batch fetch failed for this chunk ({e}); skipping.")
+                failed += len(chunk)
+                continue
+
+            for ticker in chunk:
+                df = data.get(ticker)
+                if df is None or df.empty:
+                    failed += 1
+                    continue
+                try:
+                    sig = compute_signal_frame(df)
+                    last = sig.iloc[-1]
+                    if pd.isna(last["Close"]):
+                        failed += 1
+                        continue
+                    upsert_signal(db, ticker, last)
+                    computed += 1
+                except Exception as e:
+                    print(f"[pipeline] WARNING: signal calc failed for {ticker} ({e})")
+                    failed += 1
+
+            db.commit()  # commit progress per chunk rather than one giant transaction
+            if i + CHUNK_SIZE < len(all_tickers):
+                time.sleep(PAUSE_BETWEEN_CHUNKS_SEC)  # be polite to Yahoo's rate limits
+
+        # Position sizing depends on account equity, and equity depends on
+        # what your holdings are worth — which isn't known until the loop
+        # above has fetched their closes. So it's resolved here, at the end,
+        # and the stored column is brought in line in one pass.
+        #
+        # The API recomputes this on every read anyway (see app/account.py),
+        # so these stored values are a snapshot rather than the source of
+        # truth. Writing them keeps the column honest for anyone querying
+        # the database directly instead of through the API.
+        equity, source = resolve_equity(db)
+        settings = get_settings(db)
+        restated = 0
+        for sig in db.query(Signal).all():
+            shares = suggested_shares(sig.stop_distance, equity, settings.risk_fraction)
+            if shares is not None:
+                sig.suggested_shares = shares
+                restated += 1
+        db.commit()
+
+        print(
+            f"[pipeline] Account equity ${equity:,.0f} ({source}), "
+            f"risking {settings.risk_fraction:.1%} = ${settings.risk_fraction * equity:,.0f} "
+            f"per position; restated sizing on {restated} tickers."
+        )
+        print(f"[pipeline] Done. {computed} tickers updated, {failed} skipped/failed.")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    run_pipeline()

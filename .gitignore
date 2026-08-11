@@ -1,0 +1,33 @@
+# macOS / editor cruft
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.local
+
+# Personal Claude Code permission grants. launch.json (how to start the
+# dev server) is shared and stays tracked.
+.claude/settings.local.json
+
+# Real financial data — never commit. The databases hold your actual
+# holdings and account settings, and data/imports/ holds Wealthsimple
+# exports with your full transaction history.
+backend/data/*.db
+backend/data/imports/*.csv
+backend/data/imports/processed/
+backend/pipeline.log

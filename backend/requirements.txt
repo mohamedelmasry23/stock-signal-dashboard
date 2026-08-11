@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pandas
+numpy
+pydantic
+yfinance
+requests
+lxml
