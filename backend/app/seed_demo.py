@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 from .account import get_settings, resolve_equity, suggested_shares
-from .database import Base, SessionLocal, engine
+from .database import Base, SessionLocal, engine, sync_new_columns
 from .models import Holding, Signal, Universe
 from .signals import compute_signal_frame
 from .timeutil import utcnow
@@ -74,6 +74,7 @@ def synthetic_ohlc(days=300, start_price=100.0, seed=None, regime="flat"):
 
 def seed():
     Base.metadata.create_all(bind=engine)
+    sync_new_columns()
     db = SessionLocal()
     try:
         db.query(Signal).delete()
@@ -97,6 +98,7 @@ def seed():
                     ticker=ticker,
                     as_of_date=sig.index[-1].date(),
                     close=clean(last["Close"]),
+                    prev_close=clean(sig["Close"].iloc[-2]) if len(sig) >= 2 else None,
                     donchian_high=clean(last["DonchianHigh_N"]),
                     donchian_low=clean(last["DonchianLow_M"]),
                     atr=clean(last["ATR"]),

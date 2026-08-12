@@ -1,7 +1,7 @@
-import { AlertTriangle, Briefcase, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Briefcase, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { Holding } from '../lib/api'
-import { formatPrice } from '../lib/format'
+import { formatMoney } from '../lib/format'
 import { AddHoldingForm } from './AddHoldingForm'
 import { Badge, Button, Card, CardHeader, EmptyState, Input, Skeleton, cn } from './ui'
 
@@ -17,6 +17,62 @@ function exitHeadroom(h: Holding): number | null {
   return ((s.close - s.donchian_low) / s.close) * 100
 }
 
+/**
+ * The session's move, from the previous close to the latest one. Null
+ * rather than 0 when `prev_close` is missing — a ticker with a single bar
+ * of history has an *unknown* move, and rendering that as a confident
+ * "0.00%" would be a claim the data doesn't support.
+ */
+function dayChangePct(h: Holding): number | null {
+  const s = h.signal
+  if (s?.close == null || s.prev_close == null || s.prev_close <= 0) return null
+  return ((s.close - s.prev_close) / s.prev_close) * 100
+}
+
+/**
+ * What the position is worth. `shares` is in the ticker's own quote unit,
+ * so this is the same arithmetic for shares of an ETF and troy ounces of
+ * gold — which is exactly why per-ounce holdings need no special case.
+ */
+function marketValue(h: Holding): number | null {
+  const s = h.signal
+  if (h.shares == null || s?.close == null) return null
+  return h.shares * s.close
+}
+
+function DayChange({ pct }: { pct: number | null }) {
+  if (pct === null) {
+    return (
+      <span className="text-muted-foreground" title="No previous close available for this ticker">
+        —
+      </span>
+    )
+  }
+
+  // Exactly flat gets neither colour nor arrow: it's neither a gain nor a
+  // loss, and painting it green would overstate the move.
+  const direction = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat'
+
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 font-medium',
+        direction === 'up' && 'text-positive',
+        direction === 'down' && 'text-destructive',
+        direction === 'flat' && 'text-muted-foreground',
+      )}
+      title="Move since the previous close, as of the last pipeline run"
+    >
+      {direction === 'up' && <ArrowUp size={11} strokeWidth={2.5} aria-hidden="true" />}
+      {direction === 'down' && <ArrowDown size={11} strokeWidth={2.5} aria-hidden="true" />}
+      {/* The arrow is decorative; the sign is spelled out for screen
+          readers so the direction isn't carried by colour alone. */}
+      <span className="sr-only">{direction === 'down' ? 'down' : direction === 'up' ? 'up' : ''}</span>
+      {Math.abs(pct).toFixed(2)}%
+    </span>
+  )
+}
+
 function HoldingRow({
   holding,
   onRemove,
@@ -29,9 +85,15 @@ function HoldingRow({
   busy: boolean
 }) {
   const [sharesDraft, setSharesDraft] = useState(holding.shares?.toString() ?? '')
+  // The box shows what the position is worth, but the amount held is still
+  // the only editable number — so it swaps to the raw amount while focused
+  // and back to the dollar value on blur. Without this, showing the value
+  // would have silently removed the only way to change a holding.
+  const [editing, setEditing] = useState(false)
   const sig = holding.signal
   const isExit = sig?.exit_signal ?? false
   const headroom = exitHeadroom(holding)
+  const value = marketValue(holding)
 
   function commitShares() {
     const trimmed = sharesDraft.trim()
@@ -67,9 +129,16 @@ function HoldingRow({
 
         <div className="flex items-center gap-2 shrink-0">
           <Input
-            value={sharesDraft}
+            value={editing ? sharesDraft : value === null ? '—' : formatMoney(value, 2)}
             onChange={(e) => setSharesDraft(e.target.value)}
-            onBlur={commitShares}
+            onFocus={() => {
+              setSharesDraft(holding.shares?.toString() ?? '')
+              setEditing(true)
+            }}
+            onBlur={() => {
+              commitShares()
+              setEditing(false)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') e.currentTarget.blur()
               if (e.key === 'Escape') {
@@ -79,15 +148,17 @@ function HoldingRow({
             }}
             disabled={busy}
             inputMode="decimal"
-            placeholder="—"
-            aria-label={`Amount held of ${holding.ticker}`}
-            className="w-20 h-7 tnum text-right"
+            aria-label={`Value of ${holding.ticker} — focus to edit the amount held`}
+            title={
+              value === null
+                ? 'No value yet — click to enter the amount you hold'
+                : `${holding.shares} × ${sig?.close?.toFixed(2)} — click to edit the amount held`
+            }
+            className="w-28 h-7 tnum text-right"
           />
-          {/* No "sh" suffix: the amount is in whatever unit the ticker is
-              quoted in, and holdings now legitimately mix them — shares
-              for GLD, troy ounces for GC=F. Labelling ounces as shares
-              would be worse than labelling nothing. A per-holding `unit`
-              column on the model would let this be exact. */}
+          {/* No unit suffix: the amount is in whatever unit the ticker is
+              quoted in, and holdings legitimately mix them — shares for
+              GLD, troy ounces for GC=F. */}
           <Button
             variant="destructiveGhost"
             onClick={() => onRemove(holding.ticker)}
@@ -102,12 +173,7 @@ function HoldingRow({
 
       {sig ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[11px] text-muted-foreground tnum">
-          <span>
-            Close <span className="text-foreground">{formatPrice(sig.close)}</span>
-          </span>
-          <span>
-            Exit level <span className="text-foreground">{formatPrice(sig.donchian_low)}</span>
-          </span>
+          <DayChange pct={dayChangePct(holding)} />
           {headroom !== null && (
             <span
               className={cn(isExit && 'text-destructive font-medium')}

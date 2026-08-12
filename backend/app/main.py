@@ -9,11 +9,12 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .account import get_settings, positions_value, resolve_equity, suggested_shares
 from .config import ALLOWED_ORIGINS, API_KEY, DEMO_MODE, READ_ONLY
-from .database import Base, engine, get_db
+from .database import Base, engine, get_db, sync_new_columns
 from .security import require_write_access
 from .timeutil import utcnow
 
 Base.metadata.create_all(bind=engine)
+sync_new_columns()
 
 
 def announce_posture() -> None:

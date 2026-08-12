@@ -6,6 +6,9 @@ export interface Signal {
   ticker: string
   as_of_date: string | null
   close: number | null
+  // Prior session's close. Null when the ticker has only one bar of
+  // history, in which case the day's move is unknown rather than zero.
+  prev_close: number | null
   donchian_high: number | null
   donchian_low: number | null
   atr: number | null

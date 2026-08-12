@@ -22,7 +22,7 @@ demo database. Use app.seed_demo for fake data instead.
 import io
 import sys
 import time
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 import requests
@@ -30,7 +30,7 @@ import yfinance as yf
 
 from .account import get_settings, resolve_equity, suggested_shares
 from .config import DEMO_MODE
-from .database import Base, SessionLocal, engine
+from .database import Base, SessionLocal, engine, sync_new_columns
 from .models import Holding, Signal, Universe
 from .signals import compute_signal_frame
 from .timeutil import utcnow
@@ -140,7 +140,18 @@ def fetch_ohlc_batch(tickers: List[str], period: str = PERIOD) -> Dict[str, pd.D
     return result
 
 
-def upsert_signal(db, ticker: str, sig_row: pd.Series) -> None:
+def previous_close(frame: pd.DataFrame) -> Optional[float]:
+    """Second-to-last close, for showing the day's move. None when there's
+    only one bar — a listing with no prior session genuinely has no
+    previous close, and defaulting to the current one would render as a
+    confident 0.00% rather than "unknown"."""
+    if len(frame) < 2:
+        return None
+    value = frame["Close"].iloc[-2]
+    return None if pd.isna(value) else float(value)
+
+
+def upsert_signal(db, ticker: str, sig_row: pd.Series, prev_close: Optional[float] = None) -> None:
     def clean(v):
         return None if pd.isna(v) else float(v)
 
@@ -148,6 +159,7 @@ def upsert_signal(db, ticker: str, sig_row: pd.Series) -> None:
     values = dict(
         as_of_date=as_of,
         close=clean(sig_row["Close"]),
+        prev_close=prev_close,
         donchian_high=clean(sig_row["DonchianHigh_N"]),
         donchian_low=clean(sig_row["DonchianLow_M"]),
         atr=clean(sig_row["ATR"]),
@@ -176,6 +188,7 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
         sys.exit(1)
 
     Base.metadata.create_all(bind=engine)
+    sync_new_columns()
     db = SessionLocal()
     try:
         equities = get_sp500_tickers() + get_extra_equity_tickers()
@@ -224,7 +237,7 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
                     if pd.isna(last["Close"]):
                         failed += 1
                         continue
-                    upsert_signal(db, ticker, last)
+                    upsert_signal(db, ticker, last, previous_close(df))
                     computed += 1
                 except Exception as e:
                     print(f"[pipeline] WARNING: signal calc failed for {ticker} ({e})")

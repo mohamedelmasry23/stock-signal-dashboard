@@ -155,7 +155,7 @@ pip3 install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-45 tests, no network access required. They point `DATABASE_URL` at a
+50 tests, no network access required. They point `DATABASE_URL` at a
 temporary file before importing anything from `app`, so the suite can
 never touch `real.db` — `app.main` calls `create_all()` at import time,
 so that ordering is load-bearing.
@@ -180,6 +180,26 @@ so that ordering is load-bearing.
 - **`universe`** — the scan universe (ticker + asset class: equity/commodity) — refreshed each pipeline run
 - **`signals`** — latest Donchian/ATR snapshot per ticker — upserted daily by the pipeline
 - **`account_settings`** — single row: cash balance, risk fraction, optional equity override
+
+`signals.prev_close` holds the prior session's close so the day's move can
+be shown without refetching history. It's null for a ticker with a single
+bar — an unknown move, which the UI renders as `—` rather than 0.00%.
+
+### Schema changes on an existing database
+
+`create_all()` only creates missing *tables*; it will not add a column to
+a table that already exists. So `sync_new_columns()` (in
+`app/database.py`) runs at startup and adds any new **nullable** column
+the models declare but the database lacks, logging each one:
+
+```
+[db] added missing column signals.prev_close
+```
+
+That's the whole scope — it cannot rename, drop, re-type or backfill, and
+it deliberately skips non-nullable columns since there'd be no valid value
+for existing rows. Anything beyond adding a nullable column needs a real
+migration tool (Alembic); don't grow this function into one.
 
 ## Position sizing / account equity
 

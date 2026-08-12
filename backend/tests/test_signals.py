@@ -59,6 +59,23 @@ def test_stop_distance_is_two_atr(ohlc):
     assert last["StopDistance"] == 2.0 * last["ATR"]
 
 
+def test_previous_close_is_the_prior_bar(ohlc):
+    """The day's move is computed against this, so it has to be the bar
+    before the last one — not the last one itself."""
+    from app.pipeline import previous_close
+
+    frame = ohlc([10.0, 20.0, 30.0])
+    assert previous_close(frame) == 20.0
+
+
+def test_previous_close_is_none_with_a_single_bar(ohlc):
+    """A listing with one session has no prior close. Returning the current
+    one instead would render as a confident 0.00% move."""
+    from app.pipeline import previous_close
+
+    assert previous_close(ohlc([10.0])) is None
+
+
 def test_position_size_scales_with_equity_and_risk(ohlc):
     """Shares = risk_dollars / stop_distance, so doubling equity doubles
     the size and halving the risk fraction halves it."""

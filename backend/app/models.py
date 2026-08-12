@@ -68,6 +68,11 @@ class Signal(Base):
     ticker = Column(String, primary_key=True)
     as_of_date = Column(Date)
     close = Column(Float)
+    # The prior session's close, stored so the day's move can be shown
+    # without refetching history. Null when a ticker has only one bar of
+    # data — a brand-new listing has no previous close, and reporting 0%
+    # would be a claim rather than an absence.
+    prev_close = Column(Float, nullable=True)
     donchian_high = Column(Float, nullable=True)   # N-day (55) entry level
     donchian_low = Column(Float, nullable=True)    # M-day (20) exit level
     atr = Column(Float, nullable=True)

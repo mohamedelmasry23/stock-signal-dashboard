@@ -57,6 +57,7 @@ class SignalOut(BaseModel):
     ticker: str
     as_of_date: Optional[date] = None
     close: Optional[float] = None
+    prev_close: Optional[float] = None
     donchian_high: Optional[float] = None
     donchian_low: Optional[float] = None
     atr: Optional[float] = None

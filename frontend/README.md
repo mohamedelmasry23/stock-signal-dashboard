@@ -50,7 +50,14 @@ shows a "Demo data" badge.
   so no pipeline re-run is needed. Clearing the override field (or the
   "Use derived" button) sends an explicit null, which is the only way back
   to the derived figure.
-- **Your Holdings** — exit-flagged positions sort to the top with a red
+- **Your Holdings** — each row shows the session's move (green with an up
+  arrow, red with a down arrow, neutral and arrowless when exactly flat)
+  and how far the close sits above its exit trigger. The box on the right
+  is the position's **dollar value**; focusing it swaps to the amount held
+  so it stays editable, and blurring swaps back. Colour never carries the
+  meaning alone — the arrow and a screen-reader-only "up"/"down" say the
+  same thing, which matters for red-green colour vision deficiency.
+  Exit-flagged positions sort to the top with a red
   treatment. Each row shows the close, the exit trigger level, and how
   far above that trigger the position currently sits. Shares are
   editable inline (Enter commits, Escape reverts).

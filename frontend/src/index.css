@@ -32,6 +32,13 @@
   --font-serif: Georgia, serif;
   --foreground: oklch(0 0 0);
   --destructive: oklch(0.63 0.19 23.03);
+  /* The supplied palette has no green, and a gain needs to read as
+     distinct from a loss. Lightness is tuned per theme for contrast
+     against the background, matching how --destructive already differs
+     between the two. Colour alone never carries the meaning — the up/down
+     arrow says the same thing, which is what keeps this legible for
+     red-green colour vision deficiency. */
+  --positive: oklch(0.52 0.15 148);
   --shadow-blur: 2px;
   --shadow-color: hsl(0 0% 0%);
   --sidebar-ring: oklch(0 0 0);
@@ -76,6 +83,7 @@
   --font-serif: Georgia, serif;
   --foreground: oklch(1 0 0);
   --destructive: oklch(0.69 0.2 23.91);
+  --positive: oklch(0.76 0.17 150);
   --sidebar-ring: oklch(0.72 0 0);
   --sidebar-accent: oklch(0.32 0 0);
   --sidebar-border: oklch(0.32 0 0);
@@ -112,6 +120,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-destructive: var(--destructive);
+  --color-positive: var(--positive);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-border: var(--sidebar-border);
