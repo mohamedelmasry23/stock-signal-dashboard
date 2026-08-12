@@ -90,6 +90,107 @@ fine for trend signals and close enough for valuation, but not a precise
 mark. And a dealer's buy/sell spread and storage fees mean your
 realisable value is a bit below the screen price either way.
 
+## Backtesting
+
+```bash
+python3 -m app.backtest --universe commodities,etfs --start 2016-01-01 --both-variants --save
+```
+
+Replays the strategy over historical prices and reports what would have
+happened. `--save` persists the result so the dashboard displays it;
+artifacts (`equity.csv`, `trades.csv`, `summary.md`) go to
+`data/backtests/`. Bars are cached in `data/prices_cache.db`, so re-runs
+need no network — add `--offline` to guarantee it.
+
+### Results (2016-01 to 2026-08, 10 bps round-trip costs)
+
+| | S&P 500 + ETFs | Commodities + ETFs | SPY buy & hold |
+|---|---|---|---|
+| Total return | 863% | 148% | 353% |
+| CAGR | 23.8% | 9.0% | 15.3% |
+| Max drawdown | −32.2% | −28.5% | −33.7% |
+| Sharpe | 1.04 | 0.58 | 0.89 |
+| Trades | 437 | 213 | 1 |
+| Win rate | 44.9% | 46.5% | — |
+| Profit factor | 3.11 | 2.09 | — |
+
+Read those with the caveats below before drawing any conclusion — in
+particular the S&P figure is an optimistic ceiling, not an estimate.
+
+### What the numbers actually say
+
+**The win rate is supposed to be under 50%.** Trend following loses often
+and wins big: average win 2.5R against average loss 0.7R is where the
+profit factor of 3.1 comes from. A high win rate would be the surprising
+result, not this.
+
+**The strategy's own risk model is wrong.** It sizes every position so one
+stop distance costs 1% of equity — but its only exit is the Donchian
+breakdown, with no stop order behind it. Measured: **23.7%** of losing
+trades lost more than the 1% they were sized to risk, and the worst lost
+**5.7×** it. "Risking 1%" is a claim the simulation falsifies.
+
+**Adding the missing stop makes it worse, not better.** The comparison run
+places a hard 2×ATR stop:
+
+| | As built | With 2×ATR stop |
+|---|---|---|
+| Total return | 863% | 167% |
+| Max drawdown | −32.2% | −35.6% |
+| Sharpe | 1.04 | 0.56 |
+| Losses worse than 1R | 23.7% | 18.5% |
+| Trades | 437 | 671 |
+
+The stop does control tail losses, but it stops out of positions that
+would have recovered, and the extra 234 round trips cost more than the
+protection is worth. Worth knowing before "fixing" the missing stop.
+
+**Costs matter more than anything else here.** Same universe, varying only
+the friction:
+
+| Cost per side | Total return |
+|---|---|
+| 0 bps | 167% |
+| 5 bps | 148% |
+| 25 bps | 86% |
+| 50 bps | 29% |
+
+At 213 trades, a half-percent round trip removes most of the edge. If
+you're trading a small account with currency conversion on USD tickers,
+your real costs may be closer to the bottom row than the top.
+
+### Why these numbers are optimistic
+
+- **Survivorship bias.** `get_sp500_tickers()` returns *today's* index
+  membership, so the S&P run tests only companies that both survived and
+  stayed in the index. This is worth several points a year of fake alpha.
+  The commodities/ETFs run has no constituent-selection bias, which is why
+  it's the more honest of the two — and it *underperformed* SPY.
+- **The comparison isn't like-for-like.** The commodities run is measured
+  against SPY because that's the reference everyone knows, but its
+  universe is mostly commodities. Some of that gap is asset class, not
+  strategy.
+- **Concentration.** The S&P run skipped 68,361 signals for lack of
+  capital — it can only hold 20 positions out of ~500 candidates, so the
+  result leans heavily on the ranking picking well.
+- **Ten years is one sample.** It covers one long bull market, one crash
+  and one inflation shock. A 55-day breakout system trades slowly; this
+  is not many independent observations.
+
+### Design notes
+
+- **Look-ahead is structurally prevented.** Each step reads signals from
+  the *decision* bar and fills on the *execution* bar. `compute_signal_frame`
+  is reused unchanged so the backtest can't drift from the live dashboard,
+  and `test_truncation_invariance` fails if any future value leaks.
+- **Prices are total-return.** Dividends are ~40% of long-run equity
+  return (measured: KO 96% price-only vs 168% with dividends over 10y),
+  and the benchmark is adjusted identically.
+- **`GC=F` is excluded from trading.** Its roll gaps are contract changes,
+  not P&L. It stays in the live dashboard for *valuing* bullion.
+- Historical bars live in `data/prices_cache.db`, deliberately separate
+  from `real.db` — see the isolation note in `app/backtest/prices.py`.
+
 ## Schedule it (once daily, after market close)
 
 The pipeline is meant to run once per day, a bit after the US market

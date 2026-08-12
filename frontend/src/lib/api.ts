@@ -54,6 +54,38 @@ export interface Account {
   unvalued_holdings: number
 }
 
+export interface EquityPoint {
+  date: string
+  strategy: number | null
+  benchmark: number | null
+}
+
+/**
+ * The metric dicts come straight from app/backtest/metrics.py. Typed as a
+ * loose record on purpose: adding a metric there shouldn't require an
+ * edit here, and every value is already nullable-by-design (the backend
+ * returns null rather than NaN/Infinity on degenerate input).
+ */
+export type BacktestSummary = Record<string, number | string | null>
+
+export interface BacktestRun {
+  id: number
+  label: string
+  universe: string
+  variant: 'faithful' | 'atr_stop'
+  start_date: string
+  end_date: string
+  summary: BacktestSummary
+  benchmark_summary: BacktestSummary | null
+  equity: EquityPoint[]
+}
+
+export interface Backtest {
+  faithful: BacktestRun | null
+  atr_stop: BacktestRun | null
+  caveats: string[]
+}
+
 export interface AccountPatch {
   cash_balance?: number
   risk_fraction?: number
@@ -118,6 +150,7 @@ export const api = {
   holdings: () => request<Holding[]>('/holdings'),
   entryCandidates: (limit = 10) => request<EntryCandidate[]>(`/entry-candidates?limit=${limit}`),
   account: () => request<Account>('/account'),
+  backtest: () => request<Backtest>('/backtest'),
 
   updateAccount: (patch: AccountPatch) =>
     request<Account>('/account', { method: 'PATCH', body: JSON.stringify(patch) }),

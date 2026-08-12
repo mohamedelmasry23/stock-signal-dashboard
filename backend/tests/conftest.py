@@ -61,17 +61,27 @@ def ohlc():
     """Deterministic OHLC builder: give it a list of closes and it returns
     a frame shaped the way compute_signal_frame() expects. High/low are
     padded a fixed amount around the close so ATR is predictable rather
-    than random."""
+    than random.
+
+    `opens` defaults to the closes, but can be passed separately to create
+    a gap between the bar that produces a signal and the bar that fills
+    it. Without that, no test can tell "filled at the signal bar's close"
+    apart from "filled at the next bar's open" — which is precisely the
+    look-ahead a backtest has to get right.
+
+    `end` shifts the date range, so several tickers can be built on the
+    same calendar or deliberately staggered.
+    """
     import pandas as pd
 
-    def _build(closes, pad=1.0):
-        idx = pd.bdate_range(end="2026-08-11", periods=len(closes))
+    def _build(closes, pad=1.0, opens=None, end="2026-08-11", highs=None, lows=None):
+        idx = pd.bdate_range(end=end, periods=len(closes))
         return pd.DataFrame(
             {
-                "Open": closes,
-                "High": [c + pad for c in closes],
-                "Low": [c - pad for c in closes],
-                "Close": closes,
+                "Open": list(opens) if opens is not None else list(closes),
+                "High": list(highs) if highs is not None else [c + pad for c in closes],
+                "Low": list(lows) if lows is not None else [c - pad for c in closes],
+                "Close": list(closes),
                 "Volume": [1_000_000] * len(closes),
             },
             index=idx,

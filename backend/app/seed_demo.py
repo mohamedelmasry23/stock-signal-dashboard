@@ -146,6 +146,56 @@ def seed():
     finally:
         db.close()
 
+    seed_backtest()
+
+
+def seed_backtest() -> None:
+    """Runs the real backtest engine over synthetic history so the demo's
+    backtest panel is populated.
+
+    Deliberately the real engine on fake data rather than fake results:
+    the demo then demonstrates the actual code path, and there's no
+    separate mock to drift out of sync with the thing it's imitating.
+    """
+    from datetime import date, timedelta
+
+    from .backtest.benchmark import buy_and_hold
+    from .backtest.config import BacktestConfig
+    from .backtest.engine import build_calendar, run_backtest
+    from .backtest.store import save_result
+
+    frames = {
+        ticker: synthetic_ohlc(days=760, seed=900 + i, start_price=40 + i * 12, regime=regime)
+        for i, (ticker, _, regime) in enumerate(DEMO_TICKERS)
+    }
+    benchmark = synthetic_ohlc(days=760, seed=7, start_price=100.0, regime="up")
+
+    first = min(f.index[0] for f in frames.values()).date()
+    last = max(f.index[-1] for f in frames.values()).date()
+
+    for use_stop in (False, True):
+        config = BacktestConfig(
+            start=first - timedelta(days=1),
+            end=last + timedelta(days=1),
+            tickers=tuple(sorted(frames)),
+            benchmark="DEMOBENCH",
+            use_atr_stop=use_stop,
+            label=f"demo {'with ATR stop' if use_stop else 'faithful'}",
+        )
+        result = run_backtest(frames, config, benchmark)
+
+        calendar = build_calendar(frames, config, benchmark)
+        bench_equity = buy_and_hold(benchmark, calendar, config)
+        if bench_equity is not None:
+            from .backtest import metrics
+
+            result.benchmark_equity = bench_equity
+            result.benchmark_summary = metrics.summarize(bench_equity, [])
+
+        save_result(result, universe_label="demo")
+
+    print("Seeded demo backtest (both variants).")
+
 
 if __name__ == "__main__":
     seed()

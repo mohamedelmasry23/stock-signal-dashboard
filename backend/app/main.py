@@ -1,3 +1,4 @@
+import json
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -256,6 +257,90 @@ def update_account(payload: schemas.AccountUpdate, db: Session = Depends(get_db)
     settings.updated_at = utcnow()
     db.commit()
     return _account_out(db)
+
+
+def _backtest_run_out(db: Session, run: models.BacktestRun) -> schemas.BacktestRunOut:
+    points = (
+        db.query(models.BacktestEquityPoint)
+        .filter(models.BacktestEquityPoint.run_id == run.id)
+        .order_by(models.BacktestEquityPoint.as_of_date)
+        .all()
+    )
+    return schemas.BacktestRunOut(
+        id=run.id,
+        label=run.label or run.variant,
+        universe=run.universe or "",
+        variant=run.variant,
+        start_date=run.start_date,
+        end_date=run.end_date,
+        summary=json.loads(run.summary_json) if run.summary_json else {},
+        benchmark_summary=(
+            json.loads(run.benchmark_summary_json) if run.benchmark_summary_json else None
+        ),
+        equity=[
+            schemas.EquityPointOut(date=p.as_of_date, strategy=p.strategy, benchmark=p.benchmark)
+            for p in points
+        ],
+    )
+
+
+@app.get("/api/backtest", response_model=schemas.BacktestOut)
+def get_backtest(db: Session = Depends(get_db)):
+    """The most recent backtest of each variant, with equity curves.
+
+    Read-only and unauthenticated like the rest of the GETs — a backtest
+    contains no holdings and no account data, only what the strategy would
+    have done on public price history.
+
+    Returns empty rather than 404 when nothing has been run: the dashboard
+    renders an explanatory empty state, which is more useful than an error
+    for a feature that simply hasn't been used yet.
+    """
+    runs = {}
+    for variant in ("faithful", "atr_stop"):
+        run = (
+            db.query(models.BacktestRun)
+            .filter(models.BacktestRun.variant == variant)
+            .order_by(models.BacktestRun.created_at.desc())
+            .first()
+        )
+        if run:
+            runs[variant] = _backtest_run_out(db, run)
+
+    caveats: list[str] = []
+    primary = runs.get("faithful") or runs.get("atr_stop")
+    if primary:
+        cfg = json.loads(
+            db.query(models.BacktestRun)
+            .filter(models.BacktestRun.id == primary.id)
+            .first()
+            .config_json
+        )
+        caveats.append(
+            f"Costs modelled: {cfg.get('cost_bps', 0):.0f} bps commission + "
+            f"{cfg.get('slippage_bps', 0):.0f} bps slippage per side."
+        )
+        caveats.append(
+            "Fills happen on the bar after the signal — a signal from a close "
+            "wasn't knowable until after that close."
+        )
+        caveats.append(
+            "Prices include reinvested dividends; the benchmark is treated identically."
+        )
+        if "sp500" in (primary.universe or ""):
+            caveats.append(
+                "Survivorship bias: the universe is today's S&P 500 membership, so only "
+                "companies that survived and stayed in the index were tested. Real-time "
+                "results would have been worse."
+            )
+        caveats.append(
+            "Past performance of a simulated strategy is not a prediction. This is a "
+            "measurement of a rule set over one historical window."
+        )
+
+    return schemas.BacktestOut(
+        faithful=runs.get("faithful"), atr_stop=runs.get("atr_stop"), caveats=caveats
+    )
 
 
 @app.get("/api/status", response_model=schemas.StatusOut)

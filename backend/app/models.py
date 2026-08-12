@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, Integer, String
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, Integer, String, Text
 
 from .database import Base
 from .timeutil import utcnow
@@ -18,6 +18,64 @@ class Holding(Base):
     ticker = Column(String, unique=True, index=True, nullable=False)
     shares = Column(Float, nullable=True)
     added_at = Column(DateTime, default=utcnow)
+
+
+class BacktestRun(Base):
+    """A completed backtest, stored so the dashboard can display it.
+
+    Backtest *results* belong in the app database because the API serves
+    them. The raw historical bars they were computed from do not — those
+    live in a separate cache file (see app/backtest/prices.py), or every
+    API start would create an empty bars table in here.
+    """
+
+    __tablename__ = "backtest_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
+    label = Column(String)
+    universe = Column(String)
+    # "faithful" (Donchian exit only, as the dashboard implements) or
+    # "atr_stop" (the comparison run with a hard stop).
+    variant = Column(String, index=True)
+    start_date = Column(Date)
+    end_date = Column(Date)
+    config_json = Column(Text)
+    summary_json = Column(Text)
+    benchmark_summary_json = Column(Text, nullable=True)
+
+
+class BacktestEquityPoint(Base):
+    """One point on a stored equity curve. Downsampled before storage —
+    a decade of daily bars is far more resolution than a dashboard chart
+    can render, and storing every point would bloat the database the API
+    reads on every request."""
+
+    __tablename__ = "backtest_equity"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(Integer, index=True, nullable=False)
+    as_of_date = Column(Date, nullable=False)
+    strategy = Column(Float)
+    benchmark = Column(Float, nullable=True)
+
+
+class BacktestTrade(Base):
+    __tablename__ = "backtest_trades"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(Integer, index=True, nullable=False)
+    ticker = Column(String)
+    entry_date = Column(Date)
+    entry_price = Column(Float)
+    shares = Column(Float)
+    exit_date = Column(Date)
+    exit_price = Column(Float)
+    exit_reason = Column(String)
+    pnl = Column(Float)
+    pnl_pct = Column(Float)
+    r_multiple = Column(Float)
+    bars_held = Column(Integer)
 
 
 class AccountSettings(Base):

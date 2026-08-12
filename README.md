@@ -8,7 +8,7 @@ the S&P 500 and a set of commodity ETFs — sized to your actual account.
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Tests](https://img.shields.io/badge/tests-50%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-91%20passing-brightgreen)
 
 ## What it does
 
@@ -34,6 +34,36 @@ The dashboard then shows:
 Holdings are entered manually. The amount is recorded in whatever unit
 the ticker is quoted in, so bullion held by weight (`GC=F`, quoted per
 troy ounce) values correctly alongside ordinary shares.
+
+## Does it work?
+
+There's a backtester, so this is measured rather than asserted
+(2016–2026, dividends reinvested, 10 bps round-trip costs):
+
+| | S&P 500 + ETFs | Commodities + ETFs | SPY buy & hold |
+|---|---|---|---|
+| Total return | 863% | 148% | 353% |
+| CAGR | 23.8% | 9.0% | 15.3% |
+| Max drawdown | −32.2% | −28.5% | −33.7% |
+| Sharpe | 1.04 | 0.58 | 0.89 |
+| Win rate | 44.9% | 46.5% | — |
+
+**The honest reading is more interesting than the headline.** The S&P
+number carries survivorship bias — the universe is *today's* index
+membership, so it only tests companies that survived and stayed in.
+The commodities run has no such bias, and it lost to buy-and-hold.
+
+Two findings worth more than the returns:
+
+- **The strategy's own risk model is wrong.** It sizes each position so a
+  stop-out costs 1% of equity, but its only exit is the Donchian
+  breakdown — there's no stop order. Measured: 23.7% of losing trades lost
+  more than the 1% they were sized to risk; the worst lost 5.7× it.
+- **Adding the missing stop makes it worse.** A hard 2×ATR stop cuts
+  return from 863% to 167% and deepens max drawdown, because it exits
+  positions that would have recovered and pays for 234 extra round trips.
+
+Full numbers, cost sensitivity and caveats: [backend/README.md](backend/README.md#backtesting).
 
 ## Design notes
 
@@ -63,10 +93,17 @@ silently skew the frontend's stale-data check by the UTC offset.
 demo). The API prints which one is active at startup, because a
 misconfigured instance otherwise looks identical to a correct one.
 
+**The backtester reuses the live signal code rather than reimplementing
+it.** A backtest with its own copy of the strategy stops describing the
+system it's meant to measure the moment either side changes. Look-ahead is
+prevented structurally — signals are read from the *decision* bar and
+fills happen on the *execution* bar — and a truncation-invariance test
+fails if any future value leaks into an earlier equity point.
+
 ## Layout
 
 ```
-backend/    FastAPI + SQLite: daily signal pipeline and REST API
+backend/    FastAPI + SQLite: daily signal pipeline, backtester, REST API
 frontend/   React + TypeScript + Tailwind v4 dashboard
 ```
 
@@ -98,10 +135,11 @@ backend without `DEMO_MODE`.
 cd backend && pip3 install -r requirements-dev.txt && python3 -m pytest tests/ -q
 ```
 
-50 tests covering the signal math (including that the Donchian windows are
+91 tests covering the signal math (including that the Donchian windows are
 shifted so today's high can't be part of the level it must break), the
-equity resolution tiers, per-ounce holdings, and the API — auth postures
-and validation included. No network access required.
+equity resolution tiers, per-ounce holdings, the backtest engine
+(look-ahead detection, capital rationing, off-by-one), and the API — auth
+postures and validation included. No network access required.
 
 ## Disclaimer
 

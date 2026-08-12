@@ -1,6 +1,7 @@
 import { AlertCircle } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 import { AccountPanel } from './components/AccountPanel'
+import { BacktestPanel } from './components/BacktestPanel'
 import { EntryCandidates } from './components/EntryCandidates'
 import { ExitAlert } from './components/ExitAlert'
 import { Header } from './components/Header'
@@ -10,6 +11,7 @@ import {
   api,
   type Account,
   type AccountPatch,
+  type Backtest,
   type EntryCandidate,
   type Holding,
   type Status,
@@ -18,6 +20,7 @@ import {
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null)
   const [account, setAccount] = useState<Account | null>(null)
+  const [backtest, setBacktest] = useState<Backtest | null>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [candidates, setCandidates] = useState<EntryCandidate[]>([])
 
@@ -32,14 +35,16 @@ export default function App() {
     try {
       // One round trip rather than three sequential ones; a failure in any
       // of them is a failure of the whole view, so Promise.all is right here.
-      const [s, a, h, c] = await Promise.all([
+      const [s, a, h, c, bt] = await Promise.all([
         api.status(),
         api.account(),
         api.holdings(),
         api.entryCandidates(10),
+        api.backtest(),
       ])
       setStatus(s)
       setAccount(a)
+      setBacktest(bt)
       setHoldings(h)
       setCandidates(c)
       setFatalError(null)
@@ -162,6 +167,7 @@ export default function App() {
                 busyTicker={busyTicker}
               />
             </div>
+            <BacktestPanel backtest={backtest} loading={loading} />
           </>
         )}
 

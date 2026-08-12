@@ -7,3 +7,6 @@ data/*.db
 .env
 .venv/
 venv/
+
+# backtest artifacts (equity/trades CSVs, summaries)
+data/backtests/

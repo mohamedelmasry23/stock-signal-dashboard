@@ -1,5 +1,5 @@
 from datetime import UTC, date, datetime
-from typing import Annotated, Optional
+from typing import Annotated, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer, WithJsonSchema
 
@@ -106,6 +106,40 @@ class AccountOut(BaseModel):
     equity_override: Optional[float] = None
     risk_dollars: float  # risk_fraction * equity — the per-trade risk budget
     unvalued_holdings: int  # holdings with no share count or no computed close
+
+
+class EquityPointOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    date: date
+    strategy: Optional[float] = None
+    benchmark: Optional[float] = None
+
+
+class BacktestRunOut(BaseModel):
+    """A stored backtest. `summary` and `benchmark_summary` are the flat
+    dicts produced by app/backtest/metrics.py — passed through as-is rather
+    than re-modelled, so adding a metric doesn't require touching the
+    schema, the API and the frontend types in lockstep."""
+
+    id: int
+    label: str
+    universe: str
+    variant: str  # "faithful" | "atr_stop"
+    start_date: date
+    end_date: date
+    summary: dict
+    benchmark_summary: Optional[dict] = None
+    equity: List[EquityPointOut] = []
+
+
+class BacktestOut(BaseModel):
+    """Both variants of the most recent run, plus the caveats that must
+    travel with any number quoted from them."""
+
+    faithful: Optional[BacktestRunOut] = None
+    atr_stop: Optional[BacktestRunOut] = None
+    caveats: List[str] = []
 
 
 class AccountUpdate(BaseModel):
