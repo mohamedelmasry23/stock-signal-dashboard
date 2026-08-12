@@ -69,7 +69,9 @@ function CandidateRow({
           ATR <span className="text-foreground">{formatPrice(candidate.atr)}</span>
         </span>
         <span title="Shares to buy so that a stop-out costs your configured risk budget, based on the account equity shown above">
-          Suggested <span className="text-foreground">{formatShares(candidate.suggested_shares)}</span> sh
+          {/* No unit suffix — see the note in HoldingsPanel: for GC=F this
+              figure is troy ounces, not shares. */}
+          Suggested <span className="text-foreground">{formatShares(candidate.suggested_shares)}</span>
         </span>
       </div>
     </div>

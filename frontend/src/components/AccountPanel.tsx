@@ -11,7 +11,7 @@ const sourceLabel: Record<EquitySource, string> = {
 }
 
 const sourceHint: Record<EquitySource, string> = {
-  derived: 'Market value of your holdings plus your cash balance. Updates automatically when you add holdings or import a Wealthsimple CSV.',
+  derived: 'Market value of your holdings plus your cash balance. Updates as soon as you add or change a holding — no pipeline run needed.',
   override: 'You set this figure explicitly. Clear it to go back to deriving equity from holdings + cash.',
   default: "No holdings valued and no cash set, so sizing falls back to a $100k placeholder. Add holdings or a cash balance to size against your real account.",
 }

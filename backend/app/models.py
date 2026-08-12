@@ -5,7 +5,12 @@ from .timeutil import utcnow
 
 
 class Holding(Base):
-    """A stock/asset the user currently holds. Manual entry for v1."""
+    """An asset the user currently holds, entered manually.
+
+    `shares` is whatever unit the ticker is quoted in — shares for a stock
+    or ETF, troy ounces for a per-ounce commodity like GC=F — so that
+    `shares * close` is always the position's dollar value.
+    """
 
     __tablename__ = "holdings"
 

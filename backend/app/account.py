@@ -21,9 +21,11 @@ Equity is resolved in three tiers:
   3. Otherwise DEFAULT_EQUITY — the fresh-install / demo fallback, so a
      brand-new database still shows plausible sizing rather than zeros.
 
-Tier 2 is what makes this track your Wealthsimple CSV: the importer
-rewrites `holdings` from the export, so the next read reflects whatever
-you actually own.
+Tier 2 is what keeps sizing tied to reality: change a holding and the
+next read reflects it, with no pipeline run in between.
+
+Note that "shares" is whatever unit the ticker is quoted in, so a
+per-ounce commodity like GC=F values correctly as ounces x price.
 """
 
 from typing import Optional

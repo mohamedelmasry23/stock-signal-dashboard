@@ -40,13 +40,3 @@ DB_FILENAME = "demo.db" if DEMO_MODE else "real.db"
 # without code changes, and so the test suite can use a throwaway file
 # instead of the real database.
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip() or f"sqlite:///{DATA_DIR / DB_FILENAME}"
-
-# Drop a Wealthsimple activity CSV export here and it gets picked up
-# automatically by app.import_holdings (called from the daily pipeline,
-# or run standalone). Processed files are moved to imports/processed/
-# rather than deleted, so there's an audit trail.
-IMPORTS_DIR = DATA_DIR / "imports"
-IMPORTS_DIR.mkdir(parents=True, exist_ok=True)
-
-IMPORTS_PROCESSED_DIR = IMPORTS_DIR / "processed"
-IMPORTS_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)

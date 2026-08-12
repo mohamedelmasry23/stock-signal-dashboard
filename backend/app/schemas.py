@@ -29,13 +29,17 @@ UtcDateTime = Annotated[
 ]
 
 
-# Yahoo-style symbols: letters, digits, and '-'/'.' for share classes and
-# exchange suffixes (BRK-B, SHOP.TO). Length 1-12 covers every real symbol
-# with room to spare. This can't tell you a ticker actually exists — only
-# a price fetch can — but it stops the obvious typo, the pasted sentence,
-# and the empty string from being stored as a holding that then silently
-# never gets a signal.
-TICKER_PATTERN = r"^[A-Za-z0-9.\-]{1,12}$"
+# Yahoo-style symbols: letters, digits, '-'/'.' for share classes and
+# exchange suffixes (BRK-B, SHOP.TO), '=' for futures and FX (GC=F), and
+# '^' for indices (^GSPC). Length 1-12 covers every real symbol with room
+# to spare. This can't tell you a ticker actually exists — only a price
+# fetch can — but it stops the obvious typo, the pasted sentence, and the
+# empty string from being stored as a holding that then silently never
+# gets a signal.
+#
+# '^' is deliberately not the first character in the class (where it would
+# mean negation) and '-' is last (where it's a literal, not a range).
+TICKER_PATTERN = r"^[A-Za-z0-9.=^-]{1,12}$"
 
 
 class HoldingCreate(BaseModel):

@@ -1,13 +1,11 @@
 """
 Daily signal pipeline.
 
-First checks data/imports/ for a Wealthsimple CSV export and, if one's
-there, resyncs the `holdings` table from it (see app/import_holdings.py
-for the full explanation of that flow). Then scans the universe (S&P 500
-constituents + commodity ETFs) plus any currently-held tickers — so exit
-signals still work even for something outside the default universe —
-computes Donchian/ATR signals via the shared compute_signal_frame(), and
-upserts the results into `signals`.
+Scans the universe (S&P 500 constituents + extra equity ETFs + commodity
+tickers) plus any currently-held tickers — so exit signals still work
+even for something outside the default universe — computes Donchian/ATR
+signals via the shared compute_signal_frame(), and upserts the results
+into `signals`.
 
 Run once, shortly after US market close: that's when today's close is
 finalized and tomorrow's trigger levels are locked in (see the
@@ -33,19 +31,33 @@ import yfinance as yf
 from .account import get_settings, resolve_equity, suggested_shares
 from .config import DEMO_MODE
 from .database import Base, SessionLocal, engine
-from .import_holdings import run_import
 from .models import Holding, Signal, Universe
 from .signals import compute_signal_frame
 from .timeutil import utcnow
 
-# Commodity ETFs, grouped by sub-class. These are the whole commodity
+# Equity ETFs scanned alongside the S&P 500 constituents. The Wikipedia
+# list only covers index members, so anything held or watched outside it
+# goes here.
+EXTRA_EQUITY_TICKERS = [
+    "SPUS",  # SP Funds S&P 500 Sharia Industry Exclusions ETF
+    "SPTE",  # SP Funds S&P Global Technology ETF
+]
+
+# Commodity tickers, grouped by sub-class. These are the whole commodity
 # side of the scan universe — the S&P 500 half comes from Wikipedia.
 # Note USO/BNO (WTI vs Brent) and DBC's energy weighting are strongly
 # correlated, so an oil breakout tends to surface several of these at
 # once and can crowd the entry-candidates list; trim if that annoys you.
 COMMODITY_TICKERS = [
     # precious metals
-    "GLD",   # gold
+    "GLD",   # gold ETF, ~1/10 oz per share
+    # COMEX gold futures, quoted in USD per TROY OUNCE. This is the entry
+    # to use for bullion held by weight (e.g. a broker's
+    # physically-backed gold): enter ounces in the `shares` field and
+    # `shares x close` is the position's real dollar value. Holding it as
+    # GLD instead would misprice it, since a GLD share is a fraction of an
+    # ounce and that fraction shrinks as the fund's expenses accrue.
+    "GC=F",
     "SLV",   # silver
     "PPLT",  # platinum
     "PALL",  # palladium
@@ -88,6 +100,10 @@ def get_sp500_tickers() -> List[str]:
     except Exception as e:
         print(f"[pipeline] WARNING: couldn't fetch S&P 500 list ({e}); skipping equities.")
         return []
+
+
+def get_extra_equity_tickers() -> List[str]:
+    return list(EXTRA_EQUITY_TICKERS)
 
 
 def get_commodity_tickers() -> List[str]:
@@ -162,11 +178,7 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        imported = run_import(db)
-        if imported:
-            print(f"[pipeline] Imported {imported} Wealthsimple CSV file(s) from data/imports/.")
-
-        equities = get_sp500_tickers()
+        equities = get_sp500_tickers() + get_extra_equity_tickers()
         commodities = get_commodity_tickers()
         held = [t for (t,) in db.query(Holding.ticker).all()]
 

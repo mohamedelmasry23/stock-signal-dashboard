@@ -80,10 +80,14 @@ function HoldingRow({
             disabled={busy}
             inputMode="decimal"
             placeholder="—"
-            aria-label={`Shares held of ${holding.ticker}`}
+            aria-label={`Amount held of ${holding.ticker}`}
             className="w-20 h-7 tnum text-right"
           />
-          <span className="text-[11px] text-muted-foreground">sh</span>
+          {/* No "sh" suffix: the amount is in whatever unit the ticker is
+              quoted in, and holdings now legitimately mix them — shares
+              for GLD, troy ounces for GC=F. Labelling ounces as shares
+              would be worse than labelling nothing. A per-holding `unit`
+              column on the model would let this be exact. */}
           <Button
             variant="destructiveGhost"
             onClick={() => onRemove(holding.ticker)}
@@ -176,7 +180,7 @@ export function HoldingsPanel({
         <EmptyState
           icon={<Briefcase size={28} strokeWidth={1.5} />}
           title="No holdings yet"
-          hint="Add a ticker above, or drop a Wealthsimple activity CSV into backend/data/imports/ and run the pipeline to sync automatically."
+          hint="Add a ticker above to track its exit signal. Enter the amount you hold in whatever unit the ticker is quoted in — shares for a stock or ETF, troy ounces for GC=F."
         />
       ) : (
         <div>

@@ -70,9 +70,32 @@ def test_malformed_tickers_are_rejected(client, ticker):
     assert client.post("/api/holdings", json={"ticker": ticker}).status_code == 422
 
 
-@pytest.mark.parametrize("ticker", ["BRK.B", "SHOP-A", "gld", "A"])
+@pytest.mark.parametrize("ticker", ["BRK.B", "SHOP-A", "gld", "A", "GC=F", "^GSPC"])
 def test_valid_ticker_shapes_are_accepted(client, ticker):
+    """'=' and '^' are in the allowed set for futures/FX and index symbols.
+    GC=F specifically is how bullion held by weight is tracked, so
+    rejecting it would make per-ounce holdings unrepresentable."""
     assert client.post("/api/holdings", json={"ticker": ticker}).status_code == 201
+
+
+def test_futures_ticker_survives_the_url_path(client, db):
+    """A ticker with '=' has to round-trip through the path segment of
+    PATCH/DELETE, where it arrives percent-encoded."""
+    client.post("/api/holdings", json={"ticker": "GC=F", "shares": 3})
+
+    assert client.patch("/api/holdings/GC%3DF", json={"shares": 5}).json()["shares"] == 5
+    assert client.delete("/api/holdings/GC%3DF").status_code == 204
+    assert client.get("/api/holdings").json() == []
+
+
+def test_per_ounce_holding_values_as_amount_times_price(client, db):
+    """Bullion is held as ounces of GC=F, so equity must be ounces x the
+    per-ounce price — the same arithmetic as shares, which is exactly why
+    no special case is needed for it."""
+    add_signal(db, "GC=F", close=4000.0)
+    client.post("/api/holdings", json={"ticker": "GC=F", "shares": 2.5})
+
+    assert client.get("/api/account").json()["positions_value"] == pytest.approx(10_000.0)
 
 
 def test_negative_shares_are_rejected(client):

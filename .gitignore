@@ -25,9 +25,6 @@ dist/
 .claude/settings.local.json
 
 # Real financial data — never commit. The databases hold your actual
-# holdings and account settings, and data/imports/ holds Wealthsimple
-# exports with your full transaction history.
+# holdings and account settings.
 backend/data/*.db
-backend/data/imports/*.csv
-backend/data/imports/processed/
 backend/pipeline.log

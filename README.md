@@ -8,7 +8,7 @@ the S&P 500 and a set of commodity ETFs — sized to your actual account.
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Tests](https://img.shields.io/badge/tests-51%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-45%20passing-brightgreen)
 
 ## What it does
 
@@ -31,9 +31,9 @@ The dashboard then shows:
 - **Position sizes** computed so a stop-out costs a fixed fraction of your
   equity.
 
-Holdings come from manual entry or from a Wealthsimple activity CSV
-dropped into `backend/data/imports/`, which the daily job picks up
-automatically.
+Holdings are entered manually. The amount is recorded in whatever unit
+the ticker is quoted in, so bullion held by weight (`GC=F`, quoted per
+troy ounce) values correctly alongside ordinary shares.
 
 ## Design notes
 
@@ -47,10 +47,11 @@ instead of waiting for the next daily run. Equity resolves in three tiers
 (explicit override → holdings + cash → a labelled placeholder) so the
 number on screen is never unexplained.
 
-**CSV imports are a full resync, not a merge.** Net positions from the
-export become the entire holdings table, so a position you've sold
-disappears instead of lingering. Columns are matched by alias rather than
-a fixed schema, because Wealthsimple doesn't publish a stable one.
+**A holding's amount is in the ticker's own quote unit.** Gold bullion is
+tracked as `GC=F` (COMEX gold, quoted per troy ounce) with ounces in the
+amount field, so `amount × price` is the real dollar value. Recording it
+as a share count of a gold ETF would drift, because an ETF share is a
+fraction of an ounce that shrinks as the fund's expenses accrue.
 
 **Timestamps are stored naive-UTC but served with an explicit `+00:00`.**
 SQLAlchemy's SQLite dialect strips tzinfo on write regardless, and a bare
@@ -65,7 +66,7 @@ misconfigured instance otherwise looks identical to a correct one.
 ## Layout
 
 ```
-backend/    FastAPI + SQLite: signal pipeline, CSV import, REST API
+backend/    FastAPI + SQLite: daily signal pipeline and REST API
 frontend/   React + TypeScript + Tailwind v4 dashboard
 ```
 
@@ -97,10 +98,10 @@ backend without `DEMO_MODE`.
 cd backend && pip3 install -r requirements-dev.txt && python3 -m pytest tests/ -q
 ```
 
-51 tests covering the signal math (including that the Donchian windows are
-shifted so today's high can't be part of the level it must break), CSV
-net-position parsing, the equity resolution tiers, and the API — auth
-postures and validation included. No network access required.
+45 tests covering the signal math (including that the Donchian windows are
+shifted so today's high can't be part of the level it must break), the
+equity resolution tiers, per-ounce holdings, and the API — auth postures
+and validation included. No network access required.
 
 ## Disclaimer
 

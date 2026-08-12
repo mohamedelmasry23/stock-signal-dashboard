@@ -1,15 +1,12 @@
 # Stock Signal Dashboard — Backend API + Pipeline
 
 FastAPI + SQLite backend for the personal stock/commodities signal
-dashboard, plus the daily pipeline that populates it. This is everything
-from the proposed architecture except the frontend.
-
-**Not included yet:** the React/Tailwind frontend.
+dashboard, plus the daily pipeline that populates it. The React dashboard
+that consumes this API lives in `../frontend`.
 
 ## Quickstart — run it yourself
 
 ```bash
-# 1. unzip and enter the project
 cd backend
 
 # 2. install dependencies (a virtualenv is recommended)
@@ -54,9 +51,10 @@ touching the network.
 python3 -m app.pipeline
 ```
 
-Scans the S&P 500 (pulled fresh from Wikipedia) + 11 commodity ETFs
-spanning precious metals, energy, industrial metals, agriculture and a
-broad basket (see `COMMODITY_TICKERS` in `app/pipeline.py`)
+Scans the S&P 500 (pulled fresh from Wikipedia) + a few extra equity ETFs
+(`EXTRA_EQUITY_TICKERS`) + 12 commodity tickers spanning precious metals,
+energy, industrial metals, agriculture and a broad basket
+(`COMMODITY_TICKERS`, both in `app/pipeline.py`)
 + anything currently in your `holdings` table (even if it's outside that
 universe — a held ticker always gets its exit signal computed), fetches
 2 years of daily history per ticker from `yfinance` in batches of 50, computes
@@ -70,38 +68,27 @@ once first to populate the universe, then add your holdings through
 `POST /api/holdings` (or the `/docs` UI), then re-run the pipeline so
 those tickers' exit signals get computed too.
 
-## Sync real holdings from Wealthsimple (CSV import)
+## Holding bullion (and anything quoted per unit)
 
-Wealthsimple has no public API for personal accounts, so holdings sync
-via a manual export instead of a live connection:
+`shares` on a holding means "however many units the ticker is quoted in",
+not strictly shares. That distinction matters for physical metal:
 
-1. In Wealthsimple, open the account's **Activity** page, set the date
-   range to **All time**, and export/download as CSV.
-2. Drop that file into `backend/data/imports/`.
-3. Either run the pipeline (`python3 -m app.pipeline`) — it checks that
-   folder automatically on every run — or process it immediately with:
+| What you own | Ticker | Put in `shares` |
+|---|---|---|
+| Gold bullion by weight | `GC=F` | troy ounces |
+| A gold ETF | `GLD` | shares |
 
-   ```bash
-   python3 -m app.import_holdings
-   ```
+`GC=F` is COMEX gold, quoted in USD **per troy ounce**, so 3 oz entered as
+`shares: 3` values correctly and gets a real exit signal on the gold
+price. Entering bullion as `GLD` instead would misprice it — a GLD share
+is a fraction of an ounce, and that fraction shrinks over time as the
+fund's expenses accrue, so any fixed conversion you pick goes stale.
 
-Each CSV is treated as your **full** transaction history, not a diff:
-net shares per ticker (all buys minus all sells) becomes the new
-`holdings` table, replacing whatever was there — a position you've fully
-sold out of disappears, and anything added manually via the API that
-isn't in the export gets removed too. That's why step 1 says "All time"
-and not "since last export." Processed files are moved to
-`data/imports/processed/` (not deleted) as an audit trail.
-
-Wealthsimple doesn't publish a stable CSV schema, so columns are matched
-by alias (`Ticker`/`Symbol`, `Quantity`/`Shares`, etc. — see
-`COLUMN_ALIASES` in `app/import_holdings.py`) rather than a hardcoded
-header list. If a real export fails to parse, the error names the
-missing field and the actual header row it saw — add that spelling to
-`COLUMN_ALIASES` and re-run.
-
-Refuses to run with `DEMO_MODE=true`, same reasoning as the pipeline:
-real holdings shouldn't land in the fake demo database.
+Two caveats worth knowing. `GC=F` is the front-month futures contract, so
+it trades a little away from spot (usually well under 1% for gold) —
+fine for trend signals and close enough for valuation, but not a precise
+mark. And a dealer's buy/sell spread and storage fees mean your
+realisable value is a bit below the screen price either way.
 
 ## Schedule it (once daily, after market close)
 
@@ -168,7 +155,7 @@ pip3 install -r requirements-dev.txt
 python3 -m pytest tests/ -q
 ```
 
-51 tests, no network access required. They point `DATABASE_URL` at a
+45 tests, no network access required. They point `DATABASE_URL` at a
 temporary file before importing anything from `app`, so the suite can
 never touch `real.db` — `app.main` calls `create_all()` at import time,
 so that ordering is load-bearing.
@@ -189,7 +176,7 @@ so that ordering is load-bearing.
 
 ## Schema
 
-- **`holdings`** — what you currently own (manual entry, or synced from a Wealthsimple CSV: ticker + optional shares)
+- **`holdings`** — what you currently own (ticker + optional amount, in whatever unit the ticker is quoted in)
 - **`universe`** — the scan universe (ticker + asset class: equity/commodity) — refreshed each pipeline run
 - **`signals`** — latest Donchian/ATR snapshot per ticker — upserted daily by the pipeline
 - **`account_settings`** — single row: cash balance, risk fraction, optional equity override
@@ -214,9 +201,8 @@ Equity resolves in three tiers:
 
 1. **`equity_override`** if set — you state the number explicitly.
 2. Otherwise **derived**: market value of holdings (shares x last close)
-   plus `cash_balance`. This is what makes sizing track your Wealthsimple
-   CSV — the importer rewrites `holdings`, so the next read reflects
-   whatever you actually own.
+   plus `cash_balance`. Change a holding and the next read reflects it,
+   with no pipeline run in between.
 3. Otherwise **default** ($100k) — the fresh-install fallback, so an empty
    database still shows plausible numbers. `/api/account` reports
    `equity_source: "default"` so the UI can flag it as a placeholder
@@ -252,7 +238,6 @@ and break the stale-data check against `/api/status`.
 - `app/account.py` — account equity resolution and position sizing (see "Position sizing" above).
 - `app/pipeline.py` — the daily job: fetch → compute → upsert.
 - `app/seed_demo.py` — synthetic-data stand-in for the pipeline, used for `DEMO_MODE` and local testing without hitting the network.
-- `app/import_holdings.py` — Wealthsimple CSV import; resyncs `holdings` from an exported activity CSV, called automatically at the start of every pipeline run.
 - `app/main.py` — the FastAPI app and all endpoints.
 
 ## Notes

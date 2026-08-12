@@ -21,8 +21,8 @@ export function formatMoney(v: number | null | undefined, decimals = 0): string 
 
 export function formatShares(v: number | null | undefined): string {
   if (v == null) return '—'
-  // Fractional shares are normal on Wealthsimple, but a whole number
-  // shouldn't render as "12.00".
+  // Fractional amounts are normal (fractional shares, or ounces of
+  // bullion), but a whole number shouldn't render as "12.00".
   return Number.isInteger(v)
     ? v.toLocaleString()
     : v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
