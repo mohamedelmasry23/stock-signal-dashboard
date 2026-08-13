@@ -244,12 +244,61 @@ closes (4:00pm ET) — that's when the close is finalized and the levels
 for the next session are locked in. A ~30-60 min buffer is a reasonable
 safety margin for data availability.
 
-**macOS/Linux (cron)** — run `crontab -e` and add (adjust the path and
-time; this example is 4:30pm ET, i.e. 21:30 UTC — check current UTC
-offset since it shifts with US daylight saving):
+**macOS — use launchd, not cron.** cron silently *skips* a job if the Mac
+was asleep at the scheduled time and never makes it up; launchd runs it on
+the next wake instead. The US close is late evening across Europe and
+Africa, so the laptop is usually shut when the job is due — that
+distinction decides whether it ever runs at all.
+
+`scripts/com.stock-tracker.pipeline.plist.example` is a working agent.
+Copy it to `~/Library/LaunchAgents/`, replace the placeholder paths, then:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.yourname.stock-tracker.pipeline.plist
+launchctl start com.yourname.stock-tracker.pipeline   # force a run to test
+tail -3 backend/pipeline.log
+```
+
+It runs `scripts/daily_pipeline.sh`, which writes **one line per run**
+saying whether that run was healthy:
 
 ```
-30 21 * * 1-5 cd /path/to/backend && /path/to/venv/bin/python -m app.pipeline >> pipeline.log 2>&1
+2026-08-13 19:42:55 EEST  ok      517 updated, 0 failed, 505 equities
+2026-08-13 19:39:51 EEST  WARNING 267 tickers failed — unusually high
+```
+
+The wrapper exists because the pipeline is deliberately forgiving — a
+failed S&P fetch logs a warning and carries on with commodities only — so
+a scheduled job piping raw output to a file nobody reads would hide
+exactly the failure that matters most. It flags an empty equity universe,
+an unusually high failure count, a crash, and a non-zero exit, and appends
+the full output for any non-ok run.
+
+### Three macOS traps this setup works around
+
+Each one made the scheduled run fail while the identical command succeeded
+from a terminal — the hardest kind of problem to debug, and the reason the
+plist carries the settings it does.
+
+1. **TCC.** A launchd agent cannot read `~/Desktop`, `~/Documents` or
+   `~/Downloads`. The job dies with "Operation not permitted" before it
+   can log anything at all. Keep the project elsewhere; this one lives
+   under `~/Projects`.
+2. **File descriptors.** launchd gives a task **256**; an interactive
+   shell here gets over a million. yfinance fetches 50 tickers per chunk
+   across threads, and the sockets plus its SQLite cache blow past 256 —
+   SQLite reports that as
+   `OperationalError('unable to open database file')`, which looks nothing
+   like the real cause. Hence `SoftResourceLimits → NumberOfFiles: 8192`.
+   This alone failed ~270 of 517 tickers.
+3. **yfinance's cache location.** It defaults to
+   `~/Library/Caches/py-yfinance`, which the agent couldn't open.
+   `configure_yfinance_cache()` redirects it into `data/yf_cache/`.
+
+**Linux (cron)** — cron is fine on a server, which doesn't sleep:
+
+```
+30 21 * * 1-5 /path/to/backend/scripts/daily_pipeline.sh
 ```
 
 **Windows (Task Scheduler):** create a Basic Task → Trigger: Daily,

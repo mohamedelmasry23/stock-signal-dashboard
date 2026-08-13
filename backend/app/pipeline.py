@@ -29,7 +29,7 @@ import requests
 import yfinance as yf
 
 from .account import get_settings, resolve_equity, suggested_shares
-from .config import DEMO_MODE
+from .config import DATA_DIR, DEMO_MODE
 from .database import Base, SessionLocal, engine, sync_new_columns
 from .models import Holding, Signal, Universe
 from .signals import compute_signal_frame
@@ -80,6 +80,27 @@ PAUSE_BETWEEN_CHUNKS_SEC = 1.0
 SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 # Wikipedia's user-agent policy: identify the tool, not a browser spoof.
 USER_AGENT = "StockSignalDashboard/1.0 (personal portfolio project)"
+
+# yfinance keeps a SQLite timezone cache, by default in
+# ~/Library/Caches/py-yfinance. A launchd agent could not open it: the
+# scheduled run failed 275 of 517 tickers with
+# OperationalError('unable to open database file') while the identical
+# command run from a shell succeeded completely.
+#
+# Rather than chase macOS's exact objection to that directory, keep the
+# cache inside the project, which the app already reads and writes. It
+# also makes a checkout self-contained — no state hiding in a system
+# cache directory that a cleanup would silently wipe.
+YF_CACHE_DIR = DATA_DIR / "yf_cache"
+
+
+def configure_yfinance_cache() -> None:
+    """Point yfinance's tz cache at the project. Safe to call repeatedly."""
+    try:
+        YF_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        yf.set_tz_cache_location(str(YF_CACHE_DIR))
+    except Exception as e:  # a cache-location problem must not kill a run
+        print(f"[pipeline] WARNING: couldn't set yfinance cache location ({e})")
 
 
 def get_sp500_tickers() -> List[str]:
@@ -187,6 +208,7 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
         )
         sys.exit(1)
 
+    configure_yfinance_cache()
     Base.metadata.create_all(bind=engine)
     sync_new_columns()
     db = SessionLocal()

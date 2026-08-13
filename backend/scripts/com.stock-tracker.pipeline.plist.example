@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Daily signal pipeline for the Stock Signal Dashboard.
+
+  launchd rather than cron, deliberately: cron silently SKIPS a job if the
+  Mac was asleep at the scheduled time and never makes it up. This runs at
+  23:30 local (30 min after the US close, which is 16:00 ET = 23:00 here),
+  and if the machine was asleep then, launchd runs it on the next wake
+  instead of dropping it.
+
+  Weekdays only — the US market is shut at weekends, so a Saturday run
+  would just refetch Friday's closes.
+
+  Manage it with:
+    launchctl list | grep stock-tracker            # is it loaded?
+    launchctl start com.yourname.stock-tracker.pipeline   # run now
+    launchctl unload ~/Library/LaunchAgents/com.yourname.stock-tracker.pipeline.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.yourname.stock-tracker.pipeline</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/ABSOLUTE/PATH/TO/stock-signal-dashboard/backend/scripts/daily_pipeline.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/ABSOLUTE/PATH/TO/stock-signal-dashboard/backend</string>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+    </array>
+
+    <!-- Not RunAtLoad: loading this shouldn't kick off a multi-minute
+         network job the moment you log in. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- Anything the wrapper couldn't catch (a shell-level failure before
+         its own logging starts) lands here rather than vanishing. -->
+    <key>StandardOutPath</key>
+    <string>/ABSOLUTE/PATH/TO/stock-signal-dashboard/backend/data/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/ABSOLUTE/PATH/TO/stock-signal-dashboard/backend/data/launchd.err.log</string>
+
+    <!-- Deliberately NOT ProcessType=Background. That throttles disk I/O
+         hard, and yfinance writes its SQLite tz cache from many download
+         threads at once — under throttling those contend and most tickers
+         fail with OperationalError('unable to open database file'). The
+         job is short and runs at night; it does not need to yield. -->
+    <key>ProcessType</key>
+    <string>Standard</string>
+
+    <!-- THE fix for this job. launchd gives a task 256 file descriptors by
+         default, where an interactive shell here gets over a million.
+         yfinance fetches 50 tickers per chunk across threads — the sockets
+         plus its SQLite cache exhaust 256, and SQLite reports running out
+         of descriptors as OperationalError('unable to open database file').
+         That made the scheduled run fail ~270 of 517 tickers while the
+         identical command from a terminal succeeded completely. -->
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>8192</integer>
+    </dict>
+</dict>
+</plist>

@@ -10,3 +10,9 @@ venv/
 
 # backtest artifacts (equity/trades CSVs, summaries)
 data/backtests/
+
+# scheduled-run logs and yfinance cache
+pipeline.log
+data/launchd.*.log
+data/pipeline_last_run.txt
+data/yf_cache/

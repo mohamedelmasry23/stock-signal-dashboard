@@ -54,7 +54,7 @@ from sqlalchemy import (
 )
 
 from ..config import DATA_DIR
-from ..pipeline import CHUNK_SIZE, PAUSE_BETWEEN_CHUNKS_SEC
+from ..pipeline import CHUNK_SIZE, PAUSE_BETWEEN_CHUNKS_SEC, configure_yfinance_cache
 
 CACHE_PATH = DATA_DIR / "prices_cache.db"
 
@@ -123,6 +123,7 @@ def fetch_ohlc_history(tickers: List[str], start: date, end: date) -> Dict[str, 
     if not tickers:
         return {}
 
+    configure_yfinance_cache()
     raw = yf.download(
         tickers,
         start=start.isoformat(),
