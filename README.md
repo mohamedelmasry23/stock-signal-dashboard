@@ -8,7 +8,7 @@ the S&P 500 and a set of commodity ETFs — sized to your actual account.
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Tests](https://img.shields.io/badge/tests-96%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-107%20passing-brightgreen)
 
 ## What it does
 
@@ -142,7 +142,7 @@ backend without `DEMO_MODE`.
 cd backend && pip3 install -r requirements-dev.txt && python3 -m pytest tests/ -q
 ```
 
-96 tests covering the signal math (including that the Donchian windows are
+107 tests covering the signal math (including that the Donchian windows are
 shifted so today's high can't be part of the level it must break), the
 equity resolution tiers, per-ounce holdings, the backtest engine
 (look-ahead detection, capital rationing, off-by-one), and the API — auth

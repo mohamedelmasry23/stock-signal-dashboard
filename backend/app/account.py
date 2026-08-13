@@ -53,16 +53,22 @@ def get_settings(db: Session) -> AccountSettings:
     return row
 
 
-def positions_value(db: Session) -> tuple[float, int]:
+def positions_value(db: Session, prices: Optional[dict] = None) -> tuple[float, int]:
     """Market value of all holdings, plus a count of holdings that couldn't
     be valued. A holding is unvaluable when its share count is unset (the
     ticker was added without one) or the pipeline hasn't computed a close
     for it yet — both are normal states, not errors, but they mean the
     equity figure understates the account, so the count is surfaced to the
     UI rather than silently swallowed.
+
+    `prices` optionally supplies live quotes as {ticker: price}, which take
+    precedence over the stored close. Only *valuation* uses them — the
+    signal columns on the same rows stay end-of-day, because those are what
+    define the strategy.
     """
     total = 0.0
     unvalued = 0
+    prices = prices or {}
 
     rows = (
         db.query(Holding, Signal)
@@ -70,15 +76,20 @@ def positions_value(db: Session) -> tuple[float, int]:
         .all()
     )
     for holding, signal in rows:
-        if holding.shares is None or signal is None or signal.close is None:
+        # Check the live quote before the stored close: it can value a
+        # holding the pipeline has never priced, e.g. one added today.
+        price = prices.get(holding.ticker)
+        if price is None and signal is not None:
+            price = signal.close
+        if holding.shares is None or price is None:
             unvalued += 1
             continue
-        total += holding.shares * signal.close
+        total += holding.shares * price
 
     return total, unvalued
 
 
-def resolve_equity(db: Session) -> tuple[float, str]:
+def resolve_equity(db: Session, prices: Optional[dict] = None) -> tuple[float, str]:
     """Returns (equity, source) where source is one of "override",
     "derived" or "default" — the UI shows it so the number on screen is
     never an unexplained figure."""
@@ -87,7 +98,7 @@ def resolve_equity(db: Session) -> tuple[float, str]:
     if settings.equity_override is not None and settings.equity_override > 0:
         return settings.equity_override, "override"
 
-    value, _ = positions_value(db)
+    value, _ = positions_value(db, prices)
     derived = value + (settings.cash_balance or 0.0)
     if derived > 0:
         return derived, "derived"

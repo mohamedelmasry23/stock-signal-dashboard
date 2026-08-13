@@ -35,10 +35,14 @@ export default function App() {
     try {
       // One round trip rather than three sequential ones; a failure in any
       // of them is a failure of the whole view, so Promise.all is right here.
+      // live=true pulls current quotes from Yahoo for held tickers, which
+      // drive each holding's day-change and value (and therefore equity).
+      // Signals stay end-of-day. The backend degrades to stored closes if
+      // Yahoo is unreachable, so this never blocks the dashboard loading.
       const [s, a, h, c, bt] = await Promise.all([
         api.status(),
-        api.account(),
-        api.holdings(),
+        api.account(true),
+        api.holdings(true),
         api.entryCandidates(10),
         api.backtest(),
       ])

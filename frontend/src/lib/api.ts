@@ -19,11 +19,28 @@ export interface Signal {
   updated_at: string | null
 }
 
+/** A live quote from Yahoo. Null when the request didn't ask for one, or
+ *  Yahoo didn't answer — the UI falls back to the stored end-of-day
+ *  figures rather than showing nothing. */
+export interface Quote {
+  price: number | null
+  /** Yahoo's own regularMarketChangePercent, ALREADY a percentage:
+   *  0.53 means 0.53%. Do not multiply by 100. */
+  change_percent: number | null
+  previous_close: number | null
+  /** REGULAR | CLOSED | PRE | POST */
+  market_state: string | null
+}
+
 export interface Holding {
   ticker: string
   shares: number | null
   added_at: string
   signal: Signal | null
+  quote: Quote | null
+  /** shares x whichever price is authoritative (live if present, else the
+   *  stored close). Computed server-side so the UI never has to choose. */
+  market_value: number | null
 }
 
 export interface EntryCandidate {
@@ -52,6 +69,8 @@ export interface Account {
   equity_override: number | null
   risk_dollars: number
   unvalued_holdings: number
+  /** True when equity was computed from live quotes rather than stored closes. */
+  live: boolean
 }
 
 export interface EquityPoint {
@@ -147,9 +166,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   status: () => request<Status>('/status'),
-  holdings: () => request<Holding[]>('/holdings'),
+  holdings: (live = false) => request<Holding[]>(`/holdings?live=${live}`),
   entryCandidates: (limit = 10) => request<EntryCandidate[]>(`/entry-candidates?limit=${limit}`),
-  account: () => request<Account>('/account'),
+  account: (live = false) => request<Account>(`/account?live=${live}`),
   backtest: () => request<Backtest>('/backtest'),
 
   updateAccount: (patch: AccountPatch) =>

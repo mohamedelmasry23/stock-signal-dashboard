@@ -316,6 +316,36 @@ uvicorn app.main:app --reload --port 8000                  # real data
 
 Docs at `http://localhost:8000/docs`.
 
+## Live quotes
+
+The pipeline is end-of-day, but the dashboard can show what a position is
+worth *right now*. Passing `?live=true` to `/api/holdings` or
+`/api/account` fetches current quotes from Yahoo for held tickers only
+(`app/quotes.py`), and those drive:
+
+- each holding's **day-change percentage** — taken from Yahoo's own
+  `regularMarketChangePercent` rather than derived here, so it matches
+  what you'd see quoted anywhere else, and Yahoo's handling of halts,
+  splits and odd sessions comes along with it
+- each holding's **market value**, and therefore account equity and every
+  suggested position size
+
+**Live prices never touch the signals.** Donchian levels, ATR and the exit
+flag stay computed from completed daily closes. An exit that fired on an
+intraday dip which recovered by the close would be a different strategy
+from the one the backtest measured, and the dashboard would stop
+describing the system those numbers came from.
+`test_live_prices_do_not_touch_the_signals` pins this.
+
+Yahoo being slow or down degrades to the stored closes rather than
+breaking the page. Quotes are cached for 10 seconds — just long enough to
+stop one dashboard refresh fetching the same tickers twice (it calls two
+endpoints), short enough that clicking Refresh again genuinely re-fetches.
+
+Note the units: Yahoo reports `0.5265777` to mean **0.53%**, already
+scaled as a percentage. Multiplying it by 100 "to convert" renders a
+half-percent day as a 53% move.
+
 ## Configuration
 
 All settings are environment variables. The defaults are the right ones
@@ -362,12 +392,12 @@ so that ordering is load-bearing.
 |--------|---------------------------|------------------------------------------------------------------|
 | GET    | `/api/health`              | Liveness check, reports `demo_mode`                             |
 | GET    | `/api/status`               | When signals were last computed (for a "stale data" warning)     |
-| GET    | `/api/holdings`             | All holdings, each with its latest signal (exit flag included)  |
+| GET    | `/api/holdings`             | All holdings, each with its latest signal (exit flag included). `?live=true` adds current Yahoo quotes |
 | POST   | `/api/holdings`             | Add a holding: `{"ticker": "...", "shares": optional}`           |
 | PATCH  | `/api/holdings/{ticker}`    | Update shares on an existing holding                             |
 | DELETE | `/api/holdings/{ticker}`    | Remove a holding                                                 |
 | GET    | `/api/entry-candidates`     | Top N (`?limit=`, max 10) fresh entry signals, excluding held tickers, ranked by ATR-normalized breakout strength |
-| GET    | `/api/account`              | Account equity, its source, and the inputs behind it              |
+| GET    | `/api/account`              | Account equity, its source, and the inputs behind it. `?live=true` values holdings at current quotes |
 | PATCH  | `/api/account`              | Set `cash_balance`, `risk_fraction`, or `equity_override`        |
 
 ## Schema

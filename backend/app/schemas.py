@@ -68,6 +68,22 @@ class SignalOut(BaseModel):
     updated_at: Optional[UtcDateTime] = None
 
 
+class QuoteOut(BaseModel):
+    """A live quote. Present only when the caller asked for one and Yahoo
+    answered — null means the UI should fall back to the stored
+    end-of-day figures, because a quote is an enhancement and never a
+    requirement for the dashboard to work."""
+
+    price: Optional[float] = None
+    # Yahoo's own regularMarketChangePercent, already scaled as a
+    # percentage: 0.53 means 0.53%, not 53%.
+    change_percent: Optional[float] = None
+    previous_close: Optional[float] = None
+    # REGULAR | CLOSED | PRE | POST — lets the UI say whether this is a
+    # live figure or simply the last session's final move.
+    market_state: Optional[str] = None
+
+
 class HoldingOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -75,6 +91,11 @@ class HoldingOut(BaseModel):
     shares: Optional[float] = None
     added_at: UtcDateTime
     signal: Optional[SignalOut] = None
+    quote: Optional[QuoteOut] = None
+    # shares x whichever price is authoritative (live if available, else
+    # the stored close). Computed here so the frontend never has to decide
+    # which price to value a position at.
+    market_value: Optional[float] = None
 
 
 class EntryCandidateOut(BaseModel):
@@ -106,6 +127,9 @@ class AccountOut(BaseModel):
     equity_override: Optional[float] = None
     risk_dollars: float  # risk_fraction * equity — the per-trade risk budget
     unvalued_holdings: int  # holdings with no share count or no computed close
+    # True when this equity figure was computed from live quotes rather
+    # than the last stored closes, so the UI can say which it is.
+    live: bool = False
 
 
 class EquityPointOut(BaseModel):

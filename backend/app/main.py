@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from . import models, schemas
 from .account import get_settings, positions_value, resolve_equity, suggested_shares
+from .quotes import get_quotes
 from .config import ALLOWED_ORIGINS, API_KEY, DEMO_MODE, READ_ONLY
 from .database import Base, engine, get_db, sync_new_columns
 from .security import require_write_access
@@ -73,13 +74,44 @@ def _holding_out(
     sig: Optional[models.Signal],
     equity: float,
     risk_fraction: float,
+    quote=None,
 ) -> schemas.HoldingOut:
+    """Serializes a holding. When a live quote is supplied it drives the
+    displayed value and day-change; the signal block stays end-of-day
+    regardless, because those fields define the strategy."""
+    price = quote.price if quote and quote.price is not None else (sig.close if sig else None)
     return schemas.HoldingOut(
         ticker=h.ticker,
         shares=h.shares,
         added_at=h.added_at,
         signal=_signal_out(sig, equity, risk_fraction) if sig else None,
+        quote=(
+            schemas.QuoteOut(
+                price=quote.price,
+                change_percent=quote.change_percent,
+                previous_close=quote.previous_close,
+                market_state=quote.market_state,
+            )
+            if quote
+            else None
+        ),
+        market_value=(h.shares * price) if (h.shares is not None and price is not None) else None,
     )
+
+
+def _live_prices(db: Session, live: bool) -> dict:
+    """Live quotes for held tickers, or {} when not requested.
+
+    Never raises: Yahoo being slow or down must degrade the dashboard to
+    stored end-of-day figures, not break it."""
+    if not live:
+        return {}
+    tickers = [t for (t,) in db.query(models.Holding.ticker).all()]
+    try:
+        return get_quotes(tickers)
+    except Exception as e:  # noqa: BLE001 - a quote is never load-bearing
+        print(f"[api] WARNING: live quote fetch failed ({e}); using stored closes.")
+        return {}
 
 
 @app.get("/api/health")
@@ -88,17 +120,25 @@ def health():
 
 
 @app.get("/api/holdings", response_model=List[schemas.HoldingOut])
-def list_holdings(db: Session = Depends(get_db)):
+def list_holdings(live: bool = False, db: Session = Depends(get_db)):
     """Every current holding with its latest exit/entry signal attached —
-    this is the primary view: exit-flagged holdings surface here."""
-    equity, _ = resolve_equity(db)
+    this is the primary view: exit-flagged holdings surface here.
+
+    `?live=true` additionally fetches current quotes from Yahoo, which
+    drive each holding's displayed value and day-change percentage. Exit
+    and entry signals are unaffected: those come from completed daily
+    closes, which is what keeps this the same system the backtest measured.
+    """
+    quotes = _live_prices(db, live)
+    prices = {t: q.price for t, q in quotes.items() if q.price is not None}
+    equity, _ = resolve_equity(db, prices)
     risk = get_settings(db).risk_fraction
 
     holdings = db.query(models.Holding).order_by(models.Holding.ticker).all()
     out = []
     for h in holdings:
         sig = db.query(models.Signal).filter(models.Signal.ticker == h.ticker).first()
-        out.append(_holding_out(h, sig, equity, risk))
+        out.append(_holding_out(h, sig, equity, risk, quotes.get(h.ticker)))
     return out
 
 
@@ -202,10 +242,10 @@ def entry_candidates(limit: int = 10, db: Session = Depends(get_db)):
     ]
 
 
-def _account_out(db: Session) -> schemas.AccountOut:
+def _account_out(db: Session, prices: Optional[dict] = None) -> schemas.AccountOut:
     settings = get_settings(db)
-    equity, source = resolve_equity(db)
-    value, unvalued = positions_value(db)
+    equity, source = resolve_equity(db, prices)
+    value, unvalued = positions_value(db, prices)
     return schemas.AccountOut(
         equity=equity,
         equity_source=source,
@@ -215,14 +255,19 @@ def _account_out(db: Session) -> schemas.AccountOut:
         equity_override=settings.equity_override,
         risk_dollars=settings.risk_fraction * equity,
         unvalued_holdings=unvalued,
+        live=bool(prices),
     )
 
 
 @app.get("/api/account", response_model=schemas.AccountOut)
-def get_account(db: Session = Depends(get_db)):
+def get_account(live: bool = False, db: Session = Depends(get_db)):
     """Account equity and the inputs behind it. Equity drives every
-    `suggested_shares` figure the API returns."""
-    return _account_out(db)
+    `suggested_shares` figure the API returns.
+
+    `?live=true` values holdings at current quotes rather than the last
+    stored closes, so equity and the suggested sizes move intraday."""
+    quotes = _live_prices(db, live)
+    return _account_out(db, {t: q.price for t, q in quotes.items() if q.price is not None})
 
 
 @app.patch(

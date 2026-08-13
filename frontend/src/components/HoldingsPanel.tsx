@@ -18,29 +18,34 @@ function exitHeadroom(h: Holding): number | null {
 }
 
 /**
- * The session's move, from the previous close to the latest one. Null
- * rather than 0 when `prev_close` is missing — a ticker with a single bar
- * of history has an *unknown* move, and rendering that as a confident
- * "0.00%" would be a claim the data doesn't support.
+ * The day's move.
+ *
+ * Prefers Yahoo's own `regularMarketChangePercent` when a live quote is
+ * present: it's the figure quoted everywhere else, and Yahoo handles
+ * halts, splits and odd sessions in ways a naive (last - prev) / prev
+ * gets subtly wrong. Falls back to the stored end-of-day closes when
+ * there is no quote, so the dashboard still works with Yahoo unreachable.
+ *
+ * Null rather than 0 when neither source can supply it — a ticker with a
+ * single bar of history has an *unknown* move, and a confident "0.00%"
+ * would be a claim the data doesn't support.
  */
 function dayChangePct(h: Holding): number | null {
+  if (h.quote?.change_percent != null) return h.quote.change_percent
+
   const s = h.signal
   if (s?.close == null || s.prev_close == null || s.prev_close <= 0) return null
   return ((s.close - s.prev_close) / s.prev_close) * 100
 }
 
-/**
- * What the position is worth. `shares` is in the ticker's own quote unit,
- * so this is the same arithmetic for shares of an ETF and troy ounces of
- * gold — which is exactly why per-ounce holdings need no special case.
- */
-function marketValue(h: Holding): number | null {
-  const s = h.signal
-  if (h.shares == null || s?.close == null) return null
-  return h.shares * s.close
+/** Whether this row's numbers came from a live quote rather than the last
+ *  stored close. Drives the "live" hint so a stale figure is never
+ *  mistaken for a current one. */
+function isLive(h: Holding): boolean {
+  return h.quote?.price != null
 }
 
-function DayChange({ pct }: { pct: number | null }) {
+function DayChange({ pct, live = false }: { pct: number | null; live?: boolean }) {
   if (pct === null) {
     return (
       <span className="text-muted-foreground" title="No previous close available for this ticker">
@@ -61,7 +66,11 @@ function DayChange({ pct }: { pct: number | null }) {
         direction === 'down' && 'text-destructive',
         direction === 'flat' && 'text-muted-foreground',
       )}
-      title="Move since the previous close, as of the last pipeline run"
+      title={
+        live
+          ? "Today's move, from Yahoo's own quote as of the last refresh"
+          : 'Move since the previous close, as of the last pipeline run'
+      }
     >
       {direction === 'up' && <ArrowUp size={11} strokeWidth={2.5} aria-hidden="true" />}
       {direction === 'down' && <ArrowDown size={11} strokeWidth={2.5} aria-hidden="true" />}
@@ -93,7 +102,7 @@ function HoldingRow({
   const sig = holding.signal
   const isExit = sig?.exit_signal ?? false
   const headroom = exitHeadroom(holding)
-  const value = marketValue(holding)
+  const value = holding.market_value
 
   function commitShares() {
     const trimmed = sharesDraft.trim()
@@ -152,7 +161,8 @@ function HoldingRow({
             title={
               value === null
                 ? 'No value yet — click to enter the amount you hold'
-                : `${holding.shares} × ${sig?.close?.toFixed(2)} — click to edit the amount held`
+                : `${holding.shares} × ${(holding.quote?.price ?? sig?.close)?.toFixed(2)}` +
+                  `${isLive(holding) ? ' (live)' : ' (last close)'} — click to edit the amount held`
             }
             className="w-28 h-7 tnum text-right"
           />
@@ -173,7 +183,7 @@ function HoldingRow({
 
       {sig ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[11px] text-muted-foreground tnum">
-          <DayChange pct={dayChangePct(holding)} />
+          <DayChange pct={dayChangePct(holding)} live={isLive(holding)} />
           {headroom !== null && (
             <span
               className={cn(isExit && 'text-destructive font-medium')}
@@ -218,11 +228,30 @@ export function HoldingsPanel({
   })
 
   const exitCount = holdings.filter((h) => h.signal?.exit_signal).length
+  // "Live" only when the market is actually open — outside session hours a
+  // quote is just the last close again, and labelling that live would
+  // suggest the number is still moving.
+  const openNow = holdings.some((h) => h.quote?.market_state === 'REGULAR')
+  const quoted = holdings.some((h) => h.quote?.price != null)
 
   return (
     <Card>
       <CardHeader
         title="Your Holdings"
+        action={
+          quoted ? (
+            <Badge
+              tone={openNow ? 'entry' : 'muted'}
+              title={
+                openNow
+                  ? "Prices and day-change are live from Yahoo, refreshed when you hit Refresh"
+                  : 'Market is closed — these are the last session\'s final figures'
+              }
+            >
+              {openNow ? 'Live' : 'At last close'}
+            </Badge>
+          ) : undefined
+        }
         subtitle={
           loading
             ? undefined
