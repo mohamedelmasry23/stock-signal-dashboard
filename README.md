@@ -8,7 +8,7 @@ the S&P 500 and a set of commodity ETFs — sized to your actual account.
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Tests](https://img.shields.io/badge/tests-91%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-96%20passing-brightgreen)
 
 ## What it does
 
@@ -40,28 +40,35 @@ troy ounce) values correctly alongside ordinary shares.
 There's a backtester, so this is measured rather than asserted
 (2016–2026, dividends reinvested, 10 bps round-trip costs):
 
-| | S&P 500 + ETFs | Commodities + ETFs | SPY buy & hold |
-|---|---|---|---|
-| Total return | 863% | 148% | 353% |
-| CAGR | 23.8% | 9.0% | 15.3% |
-| Max drawdown | −32.2% | −28.5% | −33.7% |
-| Sharpe | 1.04 | 0.58 | 0.89 |
-| Win rate | 44.9% | 46.5% | — |
+| | S&P 500 (today's list) | S&P 500 (2016 list) | Commodities + ETFs | SPY buy & hold |
+|---|---|---|---|---|
+| Total return | 863% | **202%** | 148% | 353% |
+| CAGR | 23.8% | 11.0% | 9.0% | 15.3% |
+| Max drawdown | −32.2% | **−52.0%** | −28.5% | −33.7% |
+| Sharpe | 1.04 | **0.47** | 0.58 | 0.89 |
 
-**The honest reading is more interesting than the headline.** The S&P
-number carries survivorship bias — the universe is *today's* index
-membership, so it only tests companies that survived and stayed in.
-The commodities run has no such bias, and it lost to buy-and-hold.
+**The first two columns are the same strategy over the same decade.** The
+only difference is which companies it was allowed to trade — today's index
+membership versus membership as it stood in December 2015. That one change
+turns a strategy that beats SPY by 500 points into one that loses to it by
+150, and nearly doubles the worst drawdown.
 
-Two findings worth more than the returns:
+That gap is survivorship bias, and measuring it is the most valuable thing
+this backtester does. Neither column is the truth: today's list omits
+every company that failed, while the 2016 list omits every winner added
+since. The real answer lies between them — and SPY's 353% lies *inside*
+that range, so **the backtest cannot establish that this strategy beats
+buy-and-hold.**
 
-- **The strategy's own risk model is wrong.** It sizes each position so a
-  stop-out costs 1% of equity, but its only exit is the Donchian
+Two further findings worth more than the returns:
+
+- **The strategy's own risk model is falsified.** It sizes each position so
+  a stop-out costs 1% of equity, but its only exit is the Donchian
   breakdown — there's no stop order. Measured: 23.7% of losing trades lost
   more than the 1% they were sized to risk; the worst lost 5.7× it.
-- **Adding the missing stop makes it worse.** A hard 2×ATR stop cuts
-  return from 863% to 167% and deepens max drawdown, because it exits
-  positions that would have recovered and pays for 234 extra round trips.
+- **Adding the missing stop makes it worse.** A hard 2×ATR stop cuts return
+  from 863% to 167% and deepens max drawdown, because it exits positions
+  that would have recovered and pays for 234 extra round trips.
 
 Full numbers, cost sensitivity and caveats: [backend/README.md](backend/README.md#backtesting).
 
@@ -135,7 +142,7 @@ backend without `DEMO_MODE`.
 cd backend && pip3 install -r requirements-dev.txt && python3 -m pytest tests/ -q
 ```
 
-91 tests covering the signal math (including that the Donchian windows are
+96 tests covering the signal math (including that the Donchian windows are
 shifted so today's high can't be part of the level it must break), the
 equity resolution tiers, per-ounce holdings, the backtest engine
 (look-ahead detection, capital rationing, off-by-one), and the API — auth

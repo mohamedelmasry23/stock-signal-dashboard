@@ -104,18 +104,64 @@ need no network — add `--offline` to guarantee it.
 
 ### Results (2016-01 to 2026-08, 10 bps round-trip costs)
 
-| | S&P 500 + ETFs | Commodities + ETFs | SPY buy & hold |
-|---|---|---|---|
-| Total return | 863% | 148% | 353% |
-| CAGR | 23.8% | 9.0% | 15.3% |
-| Max drawdown | −32.2% | −28.5% | −33.7% |
-| Sharpe | 1.04 | 0.58 | 0.89 |
-| Trades | 437 | 213 | 1 |
-| Win rate | 44.9% | 46.5% | — |
-| Profit factor | 3.11 | 2.09 | — |
+| | S&P 500 (today's list) | S&P 500 (2016 list) | Commodities + ETFs | SPY buy & hold |
+|---|---|---|---|---|
+| Total return | 863% | **202%** | 148% | 353% |
+| CAGR | 23.8% | 11.0% | 9.0% | 15.3% |
+| Max drawdown | −32.2% | **−52.0%** | −28.5% | −33.7% |
+| Volatility | 23.2% | 34.2% | 17.5% | 17.8% |
+| Sharpe | 1.04 | **0.47** | 0.58 | 0.89 |
+| Trades | 437 | 439 | 213 | 1 |
+| Win rate | 44.9% | 41.0% | 46.5% | — |
+| Profit factor | 3.11 | 1.45 | 2.09 | — |
 
-Read those with the caveats below before drawing any conclusion — in
-particular the S&P figure is an optimistic ceiling, not an estimate.
+**The first two columns are the same strategy over the same decade.** The
+only difference is which companies it was allowed to trade: today's index
+membership, versus membership as it stood in December 2015. That single
+change turns a strategy that beats SPY by 500 points into one that loses
+to it by 150, and nearly doubles the worst drawdown.
+
+That gap *is* the survivorship bias. See below for why neither column is
+the truth.
+
+### Bracketing the truth
+
+Neither S&P run is unbiased — they're wrong in opposite directions:
+
+- **Today's list** only contains companies that survived and stayed in the
+  index, so the strategy is never given the chance to buy a disaster. It
+  **overstates**.
+- **The 2016 list** puts 186 since-removed companies back in (37% of the
+  index), but excludes the 185 added afterwards — including several of the
+  decade's biggest winners. It **understates**.
+
+So the honest conclusion is that the true result lies somewhere between
+**202% and 863%**. SPY's 353% sits inside that range, which means:
+
+> **This backtest cannot determine whether the strategy beats buy-and-hold.**
+
+That is a real finding, not a failure. It's a far more useful thing to
+know than a single confident number that happens to be wrong.
+
+### How partial the mitigation is
+
+The 2016 run is better, not fixed. Of the 186 removed tickers, **only 84
+(45%) still have usable price data** — the other 102 return nothing from
+Yahoo at all. The failures that matter most, the outright bankruptcies,
+are precisely the ones free data sources have purged. That is why
+survivorship-free datasets (CRSP, Norgate, Sharadar) are sold
+commercially.
+
+Regenerate the snapshot with:
+
+```bash
+python3 -m app.backtest.universe 20160101 sp500_2016
+python3 -m app.backtest --universe file:data/universes/sp500_2016.txt,etfs \
+  --start 2016-01-01 --both-variants
+```
+
+The list is committed at `data/universes/sp500_2016.txt` with its Wayback
+source URL in the header, so the run is reproducible without re-scraping.
 
 ### What the numbers actually say
 

@@ -33,9 +33,21 @@ FUTURES_SUFFIX = "=F"
 
 
 def resolve_universe(spec: str) -> tuple[list[str], list[str]]:
-    """Returns (tradeable tickers, names of anything excluded)."""
-    names = {p.strip().lower() for p in spec.split(",") if p.strip()}
+    """Returns (tradeable tickers, names of anything excluded).
+
+    Accepts `file:<path>` for a saved point-in-time membership list — the
+    survivorship-bias mitigation described in app/backtest/universe.py.
+    Anything else unrecognised is treated as a literal ticker.
+    """
+    parts = [p.strip() for p in spec.split(",") if p.strip()]
+    names = {p.lower() for p in parts if not p.lower().startswith("file:")}
+    files = [p[len("file:"):] for p in parts if p.lower().startswith("file:")]
     tickers: list[str] = []
+
+    for path in files:
+        from .universe import load_membership
+
+        tickers += load_membership(Path(path))
 
     if names & {"sp500", "all"}:
         tickers += get_sp500_tickers()
