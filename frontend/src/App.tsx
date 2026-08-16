@@ -6,6 +6,12 @@ import { EntryCandidates } from './components/EntryCandidates'
 import { ExitAlert } from './components/ExitAlert'
 import { Header } from './components/Header'
 import { HoldingsPanel } from './components/HoldingsPanel'
+import { RsiEntryCandidates } from './components/RsiEntryCandidates'
+import { RsiExitAlert } from './components/RsiExitAlert'
+import { RsiHoldingsPanel } from './components/RsiHoldingsPanel'
+import { RsiUniverseNote } from './components/RsiUniverseNote'
+import { StrategyNav } from './components/StrategyNav'
+import { useHashRoute } from './hooks/useHashRoute'
 import {
   ApiError,
   api,
@@ -14,15 +20,22 @@ import {
   type Backtest,
   type EntryCandidate,
   type Holding,
+  type RsiEntryCandidate,
+  type RsiHolding,
   type Status,
 } from './lib/api'
 
 export default function App() {
+  const [route, navigate] = useHashRoute()
+
   const [status, setStatus] = useState<Status | null>(null)
   const [account, setAccount] = useState<Account | null>(null)
   const [backtest, setBacktest] = useState<Backtest | null>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [candidates, setCandidates] = useState<EntryCandidate[]>([])
+  const [rsiHoldings, setRsiHoldings] = useState<RsiHolding[]>([])
+  const [rsiCandidates, setRsiCandidates] = useState<RsiEntryCandidate[]>([])
+  const [rsiBacktest, setRsiBacktest] = useState<Backtest | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -30,35 +43,56 @@ export default function App() {
   const [addError, setAddError] = useState<string | null>(null)
   const [busyTicker, setBusyTicker] = useState<string | null>(null)
 
-  const load = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true)
-    try {
-      // One round trip rather than three sequential ones; a failure in any
-      // of them is a failure of the whole view, so Promise.all is right here.
-      // live=true pulls current quotes from Yahoo for held tickers, which
-      // drive each holding's day-change and value (and therefore equity).
-      // Signals stay end-of-day. The backend degrades to stored closes if
-      // Yahoo is unreachable, so this never blocks the dashboard loading.
-      const [s, a, h, c, bt] = await Promise.all([
-        api.status(),
-        api.account(true),
-        api.holdings(true),
-        api.entryCandidates(10),
-        api.backtest(),
-      ])
-      setStatus(s)
-      setAccount(a)
-      setBacktest(bt)
-      setHoldings(h)
-      setCandidates(c)
-      setFatalError(null)
-    } catch (e) {
-      setFatalError(e instanceof ApiError ? e.message : 'Something went wrong loading the dashboard.')
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
+  const load = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setRefreshing(true)
+      try {
+        // One round trip rather than several sequential ones; a failure in
+        // any of them is a failure of the whole view, so Promise.all is
+        // right here. live=true pulls current quotes from Yahoo for held
+        // tickers, which drive each holding's day-change and value (and
+        // therefore equity). Signals stay end-of-day. The backend degrades
+        // to stored closes if Yahoo is unreachable, so this never blocks
+        // the dashboard loading.
+        //
+        // Only the showing strategy's data is fetched. Loading both would
+        // double the quote requests on every refresh to populate a page
+        // that isn't on screen.
+        const [s, a] = await Promise.all([api.status(), api.account(true)])
+        setStatus(s)
+        setAccount(a)
+
+        if (route === 'rsi') {
+          const [h, c, bt] = await Promise.all([
+            api.rsiHoldings(true),
+            api.rsiEntryCandidates(10),
+            api.rsiBacktest(),
+          ])
+          setRsiHoldings(h)
+          setRsiCandidates(c)
+          setRsiBacktest(bt)
+        } else {
+          const [h, c, bt] = await Promise.all([
+            api.holdings(true),
+            api.entryCandidates(10),
+            api.backtest(),
+          ])
+          setHoldings(h)
+          setCandidates(c)
+          setBacktest(bt)
+        }
+        setFatalError(null)
+      } catch (e) {
+        setFatalError(
+          e instanceof ApiError ? e.message : 'Something went wrong loading the dashboard.',
+        )
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [route],
+  )
 
   useEffect(() => {
     void load()
@@ -130,7 +164,17 @@ export default function App() {
           loading={loading}
           onRefresh={() => void load(true)}
           refreshing={refreshing}
+          strategyLabel={
+            route === 'rsi' ? 'RSI(2) pullback · indexes & ETFs' : 'Donchian breakout'
+          }
+          lastUpdated={
+            route === 'rsi'
+              ? (status?.rsi_signals_last_updated ?? null)
+              : (status?.signals_last_updated ?? null)
+          }
         />
+
+        <StrategyNav route={route} onNavigate={navigate} />
 
         {fatalError ? (
           <div
@@ -152,33 +196,76 @@ export default function App() {
           </div>
         ) : (
           <>
-            <ExitAlert holdings={holdings} />
-            <AccountPanel account={account} loading={loading} onUpdate={updateAccount} />
-            <div className="grid gap-6 lg:grid-cols-2 items-start">
-              <HoldingsPanel
-                holdings={holdings}
-                loading={loading}
-                busyTicker={busyTicker}
-                onAdd={addHolding}
-                onRemove={(t) => void removeHolding(t)}
-                onUpdateShares={(t, s) => void updateShares(t, s)}
-                addError={addError}
-              />
-              <EntryCandidates
-                candidates={candidates}
-                loading={loading}
-                onAdd={(t) => void addHolding(t, null).catch(() => {})}
-                busyTicker={busyTicker}
-              />
-            </div>
-            <BacktestPanel backtest={backtest} loading={loading} />
+            {/* The account is shared: one pot of money, sized the same way
+                whichever strategy proposed the trade. */}
+            {route === 'rsi' ? (
+              <>
+                <RsiExitAlert holdings={rsiHoldings} />
+                <RsiUniverseNote />
+                <AccountPanel account={account} loading={loading} onUpdate={updateAccount} />
+                <div className="grid gap-6 lg:grid-cols-2 items-start">
+                  <RsiHoldingsPanel
+                    holdings={rsiHoldings}
+                    loading={loading}
+                    busyTicker={busyTicker}
+                    onAdd={addHolding}
+                    onRemove={(t) => void removeHolding(t)}
+                    onUpdateShares={(t, s) => void updateShares(t, s)}
+                    addError={addError}
+                  />
+                  <RsiEntryCandidates
+                    candidates={rsiCandidates}
+                    loading={loading}
+                    onAdd={(t) => void addHolding(t, null).catch(() => {})}
+                    busyTicker={busyTicker}
+                  />
+                </div>
+                <BacktestPanel backtest={rsiBacktest} loading={loading} strategy="rsi" />
+              </>
+            ) : (
+              <>
+                <ExitAlert holdings={holdings} />
+                <AccountPanel account={account} loading={loading} onUpdate={updateAccount} />
+                <div className="grid gap-6 lg:grid-cols-2 items-start">
+                  <HoldingsPanel
+                    holdings={holdings}
+                    loading={loading}
+                    busyTicker={busyTicker}
+                    onAdd={addHolding}
+                    onRemove={(t) => void removeHolding(t)}
+                    onUpdateShares={(t, s) => void updateShares(t, s)}
+                    addError={addError}
+                  />
+                  <EntryCandidates
+                    candidates={candidates}
+                    loading={loading}
+                    onAdd={(t) => void addHolding(t, null).catch(() => {})}
+                    busyTicker={busyTicker}
+                  />
+                </div>
+                <BacktestPanel backtest={backtest} loading={loading} />
+              </>
+            )}
           </>
         )}
 
         <footer className="mt-8 text-[11px] text-muted-foreground leading-relaxed">
-          Signals are computed once daily after the US close from 55/20-day Donchian channels and
-          ATR(20). Position sizes are derived from your account equity above and update immediately
-          when you change it. Not investment advice.
+          {route === 'rsi' ? (
+            <>
+              Signals are computed once daily after the US close over liquid index, sector, style
+              and bond ETFs: buy when RSI(2) drops below 5 while price holds above its 200-day
+              average, sell when RSI(2) clears 70 or the close gets back above its 5-day average.
+              Position sizes come from the same account equity as the Donchian page, so a trade is
+              risked identically whichever strategy proposed it — but the exit rules differ, so a
+              holding flagged here may be a hold on the other page. Not investment advice.
+            </>
+          ) : (
+            <>
+              Signals are computed once daily after the US close from 55/20-day Donchian channels
+              and ATR(20). Position sizes are derived from your account equity above and update
+              immediately when you change it. Not investment advice.
+            </>
+          )}
         </footer>
       </div>
     </div>

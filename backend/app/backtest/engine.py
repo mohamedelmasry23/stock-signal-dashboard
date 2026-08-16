@@ -23,9 +23,15 @@ Two consequences worth stating because both are easy to get backwards:
   engine must NOT shift them again — the one-bar delay lives entirely in
   the d/x split. Double-shifting is the classic off-by-one here.
 
-* `ATR` and `StopDistance` are NOT shifted inside `compute_signal_frame`;
-  they include their own bar. That is fine and is not look-ahead, so long
-  as sizing reads them from `d` and never from `x`.
+* `ATR`, `StopDistance`, and every indicator the RSI strategy uses are NOT
+  shifted; they include their own bar. That is fine and is not look-ahead,
+  so long as they are read from `d` and never from `x`.
+
+The asymmetry between those two points is deliberate and is the thing most
+likely to be "fixed" by mistake later: only the Donchian *levels* shift,
+because a breakout level containing today's own high could never be
+broken. `test_truncation_invariance` covers both strategies and is what
+would catch a well-meaning edit that made them consistent.
 """
 
 from __future__ import annotations
@@ -38,8 +44,9 @@ import numpy as np
 import pandas as pd
 
 from ..account import suggested_shares
-from ..signals import compute_signal_frame
 from .config import BacktestConfig
+from .metrics import TRADING_DAYS
+from .strategies import get_strategy
 
 
 @dataclass(frozen=True)
@@ -120,23 +127,25 @@ def _aligned(frame: pd.DataFrame, calendar: pd.DatetimeIndex, config: BacktestCo
     the Donchian channel — inventing both a tighter stop and a stale
     breakout level. A ticker simply isn't tradeable on a date it has no
     bar for.
+
+    *Which* signals get computed is the strategy's business, not this
+    function's — see app/backtest/strategies.py. Everything downstream
+    consumes only entry/exit/atr/stop_distance/rank, so a strategy that
+    supplies those needs no change here.
     """
-    signals = compute_signal_frame(
-        frame,
-        n_entry=config.n_entry,
-        m_exit=config.m_exit,
-        atr_period=config.atr_period,
-        k_atr=config.k_atr,
-    ).reindex(calendar)
+    signals = get_strategy(config.strategy).frame(frame, config).reindex(calendar)
 
     return {
         "open": signals["Open"].to_numpy(dtype=float),
         "high": signals["High"].to_numpy(dtype=float),
         "low": signals["Low"].to_numpy(dtype=float),
         "close": signals["Close"].to_numpy(dtype=float),
-        "donchian_high": signals["DonchianHigh_N"].to_numpy(dtype=float),
         "atr": signals["ATR"].to_numpy(dtype=float),
         "stop_distance": signals["StopDistance"].to_numpy(dtype=float),
+        # Candidate quality, for the days when capital can't fund every
+        # signal. Non-finite disqualifies — which is how a missing close,
+        # a missing level or a zero ATR are all rejected in one test.
+        "rank": signals["Rank"].to_numpy(dtype=float),
         # fillna(False) because a NaN bar must not read as a signal.
         "entry": signals["EntrySignal"].fillna(False).to_numpy(dtype=bool),
         "exit": signals["ExitSignal"].fillna(False).to_numpy(dtype=bool),
@@ -197,6 +206,13 @@ def run_backtest(
     equity_curve[0] = cash_curve[0] = config.initial_equity
     cost_rate = config.total_cost_rate
     fill_field = "open" if config.fill == "next_open" else "close"
+    # Compounded on trading days only, matching how the annualising in
+    # metrics.py treats a year (252 bars, not 365 days).
+    cash_daily_rate = (
+        (1.0 + config.cash_yield_annual) ** (1.0 / TRADING_DAYS) - 1.0
+        if config.cash_yield_annual
+        else 0.0
+    )
 
     def close_position(pos: Position, price: float, index: int, reason: str) -> None:
         nonlocal cash
@@ -288,19 +304,22 @@ def run_backtest(
             if not arr["entry"][d]:
                 continue
             stop_distance = arr["stop_distance"][d]
-            close_d, high_d, atr_d = arr["close"][d], arr["donchian_high"][d], arr["atr"][d]
             # np.isfinite, not `is None`: suggested_shares() returns NaN
             # for a NaN stop distance (NaN <= 0 is False), and one NaN
             # share count turns cash and every later equity point into NaN.
             if not (np.isfinite(stop_distance) and stop_distance > 0):
                 continue
-            if not (np.isfinite(close_d) and np.isfinite(high_d) and np.isfinite(atr_d) and atr_d > 0):
+            # The strategy's own ranking key, computed by the same formula
+            # the matching /api/…entry-candidates endpoint uses. When a day
+            # produces more signals than max_positions can hold — routine
+            # for RSI, which has printed 217 at once — this ordering, not
+            # the entry rule, decides what actually gets traded.
+            rank = arr["rank"][d]
+            if not np.isfinite(rank):
                 continue
-            # Identical formula to /api/entry-candidates, with the ticker
-            # as tiebreak so a run is reproducible rather than dependent on
-            # dict ordering.
-            strength = (close_d - high_d) / atr_d
-            candidates.append((-strength, ticker, stop_distance))
+            # Ticker as tiebreak so a run is reproducible rather than
+            # dependent on dict ordering.
+            candidates.append((-rank, ticker, stop_distance))
 
         candidates.sort()
 
@@ -317,17 +336,31 @@ def run_backtest(
                 continue
 
             fill_price = raw_price * (1 + cost_rate)
-            target = suggested_shares(float(stop_distance), equity_for_sizing, config.risk_fraction)
-            if target is None or not np.isfinite(target) or target <= 0:
-                continue
-
-            # Caps the live app doesn't have. Risk-based sizing on a
-            # low-volatility name routinely asks for multiples of the
-            # account; cash alone would still allow one position to be the
-            # entire portfolio.
-            by_fraction = config.max_position_fraction * equity_for_sizing / fill_price
             by_cash = cash / fill_price
-            shares = min(target, by_fraction, by_cash)
+
+            if config.sizing_mode == "equal_weight":
+                # A flat slice of the account per position, which is how
+                # short-term mean reversion is actually traded. No
+                # max_position_fraction here: the slice already bounds the
+                # position, and applying the cap as well would re-impose
+                # the throttle this mode exists to remove.
+                target = (equity_for_sizing / config.target_positions) / fill_price
+                shares = min(target, by_cash)
+            else:
+                target = suggested_shares(
+                    float(stop_distance), equity_for_sizing, config.risk_fraction
+                )
+                if target is None or not np.isfinite(target) or target <= 0:
+                    continue
+                # Caps the live app doesn't have. Risk-based sizing on a
+                # low-volatility name routinely asks for multiples of the
+                # account; cash alone would still allow one position to be
+                # the entire portfolio.
+                by_fraction = config.max_position_fraction * equity_for_sizing / fill_price
+                shares = min(target, by_fraction, by_cash)
+
+            if not np.isfinite(shares) or shares <= 0:
+                continue
 
             if not config.allow_fractional:
                 shares = float(np.floor(shares))
@@ -347,7 +380,20 @@ def run_backtest(
                 entry_price=raw_price,
                 entry_index=x,
                 entry_cost=entry_cost,
-                risk_dollars=risk_dollars,
+                # What one stop_distance of adverse move actually costs.
+                #
+                # In `risk` mode that is the intended budget by
+                # construction, so this is the same figure. In
+                # equal_weight it is NOT — position size came from the
+                # allocation, not from a risk target — so recording the
+                # intended budget would make every R-multiple fiction.
+                # Deriving it from the position keeps "losses worse than
+                # 1R" meaning the same thing in both modes.
+                risk_dollars=(
+                    shares * float(stop_distance)
+                    if config.sizing_mode == "equal_weight"
+                    else risk_dollars
+                ),
                 stop_distance=float(stop_distance),
                 # stop_distance is ALREADY ATR * k_atr (see signals.py), so
                 # the stop sits one stop_distance below entry. Multiplying
@@ -357,7 +403,15 @@ def run_backtest(
                 last_price=raw_price,
             )
 
-        # --- 5. Mark to market -------------------------------------------
+        # --- 5. Interest on idle cash ------------------------------------
+        # Accrued after this bar's trading, so a position opened today
+        # doesn't also earn a day of interest on the money that bought it.
+        # Zero by default, which leaves every previously recorded result
+        # bit-for-bit unchanged.
+        if cash_daily_rate and cash > 0:
+            cash *= 1.0 + cash_daily_rate
+
+        # --- 6. Mark to market -------------------------------------------
         holdings_value = 0.0
         for pos in positions.values():
             price = data[pos.ticker]["close"][x]

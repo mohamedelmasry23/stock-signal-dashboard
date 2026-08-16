@@ -14,6 +14,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from sqlalchemy import func
 
 from ..database import Base, SessionLocal, engine, sync_new_columns
 from ..models import BacktestEquityPoint, BacktestRun, BacktestTrade
@@ -70,6 +71,7 @@ def save_result(result: BacktestResult, universe_label: str = "") -> int:
         run = BacktestRun(
             label=result.config.label or result.config.variant,
             universe=universe_label,
+            strategy=result.config.strategy,
             variant=result.config.variant,
             start_date=result.equity.index[0].date(),
             end_date=result.equity.index[-1].date(),
@@ -83,12 +85,19 @@ def save_result(result: BacktestResult, universe_label: str = "") -> int:
         db.commit()
         db.refresh(run)
 
-        # Replace any previous run of the same variant+universe: the
-        # dashboard shows the latest, and keeping every historical run
+        # Replace any previous run of the same strategy+variant+universe:
+        # the dashboard shows the latest, and keeping every historical run
         # would grow the database without anything ever reading them.
+        #
+        # `strategy` is load-bearing in this filter, not cosmetic. Without
+        # it, saving an RSI run over `sp500,etfs` would delete the Donchian
+        # run of the same universe — destroying the very result it exists
+        # to be compared against. Older rows predate the column and are
+        # NULL, which is why the comparison coalesces to "donchian".
         stale = (
             db.query(BacktestRun)
             .filter(
+                func.coalesce(BacktestRun.strategy, "donchian") == run.strategy,
                 BacktestRun.variant == run.variant,
                 BacktestRun.universe == run.universe,
                 BacktestRun.id != run.id,
@@ -104,12 +113,16 @@ def save_result(result: BacktestResult, universe_label: str = "") -> int:
             bench = None
             if result.benchmark_equity is not None and stamp in result.benchmark_equity.index:
                 bench = _clean(result.benchmark_equity.loc[stamp])
+            exposure = None
+            if result.exposure is not None and stamp in result.exposure.index:
+                exposure = _clean(result.exposure.loc[stamp])
             db.add(
                 BacktestEquityPoint(
                     run_id=run.id,
                     as_of_date=stamp.date(),
                     strategy=_clean(result.equity.loc[stamp]),
                     benchmark=bench,
+                    exposure=exposure,
                 )
             )
 

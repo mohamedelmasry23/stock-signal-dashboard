@@ -26,16 +26,26 @@ export function Header({
   loading,
   onRefresh,
   refreshing,
+  strategyLabel = 'Donchian breakout',
+  lastUpdated,
 }: {
   status: Status | null
   loading: boolean
   onRefresh: () => void
   refreshing: boolean
+  /** Named by the caller rather than derived from the route, so the header
+   *  stays presentational and knows nothing about routing. */
+  strategyLabel?: string
+  /** When the showing strategy's signals were computed. Passed in because
+   *  both strategies are written by one pipeline run but tracked
+   *  separately — the header has to report the page you're actually on. */
+  lastUpdated?: string | null
 }) {
   const { theme, toggle } = useTheme()
   const timeOfDay = useGreeting()
   const GreetingIcon = greetingIcon[timeOfDay]
-  const stale = status ? isStale(status.signals_last_updated) : false
+  const updated = lastUpdated !== undefined ? lastUpdated : (status?.signals_last_updated ?? null)
+  const stale = status ? isStale(updated) : false
 
   // Two independent guards on showing the name, and the ordering matters:
   // it's only shown once `status` has come back AND says this isn't a demo
@@ -69,10 +79,8 @@ export function Header({
             <Skeleton className="h-3 w-44 mt-1.5" />
           ) : (
             <p className="text-xs text-muted-foreground leading-tight mt-0.5">
-              Donchian breakout · signals{' '}
-              <span title={absoluteTime(status?.signals_last_updated ?? null)}>
-                {relativeTime(status?.signals_last_updated ?? null)}
-              </span>
+              {strategyLabel} · signals{' '}
+              <span title={absoluteTime(updated)}>{relativeTime(updated)}</span>
             </p>
           )}
         </div>

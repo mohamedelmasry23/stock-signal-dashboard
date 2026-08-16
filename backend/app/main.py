@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .account import get_settings, positions_value, resolve_equity, suggested_shares
 from .quotes import get_quotes
-from .config import ALLOWED_ORIGINS, API_KEY, DEMO_MODE, READ_ONLY
+from .config import ALLOWED_ORIGINS, API_KEY, DEMO_MODE, READ_ONLY, is_point_in_time
 from .database import Base, engine, get_db, sync_new_columns
 from .security import require_write_access
+from .signals import RSI_ENTRY_THRESHOLD
 from .timeutil import utcnow
 
 Base.metadata.create_all(bind=engine)
@@ -242,6 +243,104 @@ def entry_candidates(limit: int = 10, db: Session = Depends(get_db)):
     ]
 
 
+def _rsi_signal_out(
+    sig: models.RsiSignal, equity: float, risk_fraction: float
+) -> schemas.RsiSignalOut:
+    """As `_signal_out`, for the RSI strategy: sizing is recomputed from
+    the account as it stands now rather than served from the value the
+    pipeline stored last night."""
+    out = schemas.RsiSignalOut.model_validate(sig)
+    out.suggested_shares = suggested_shares(sig.stop_distance, equity, risk_fraction)
+    return out
+
+
+@app.get("/api/rsi/holdings", response_model=List[schemas.RsiHoldingOut])
+def list_rsi_holdings(live: bool = False, db: Session = Depends(get_db)):
+    """Your holdings with RSI(2) pullback signals attached.
+
+    Same positions as `/api/holdings` — the difference is entirely in which
+    of them is flagged for exit, because the two strategies exit on
+    different conditions. A ticker can legitimately be an exit here and a
+    hold there; that disagreement is information, not a bug, and neither
+    page is authoritative over the other.
+    """
+    quotes = _live_prices(db, live)
+    prices = {t: q.price for t, q in quotes.items() if q.price is not None}
+    equity, _ = resolve_equity(db, prices)
+    risk = get_settings(db).risk_fraction
+
+    out = []
+    for h in db.query(models.Holding).order_by(models.Holding.ticker).all():
+        sig = db.query(models.RsiSignal).filter(models.RsiSignal.ticker == h.ticker).first()
+        quote = quotes.get(h.ticker)
+        price = quote.price if quote and quote.price is not None else (sig.close if sig else None)
+        out.append(
+            schemas.RsiHoldingOut(
+                ticker=h.ticker,
+                shares=h.shares,
+                added_at=h.added_at,
+                signal=_rsi_signal_out(sig, equity, risk) if sig else None,
+                quote=(
+                    schemas.QuoteOut(
+                        price=quote.price,
+                        change_percent=quote.change_percent,
+                        previous_close=quote.previous_close,
+                        market_state=quote.market_state,
+                    )
+                    if quote
+                    else None
+                ),
+                market_value=(
+                    h.shares * price if (h.shares is not None and price is not None) else None
+                ),
+            )
+        )
+    return out
+
+
+@app.get("/api/rsi/entry-candidates", response_model=List[schemas.RsiEntryCandidateOut])
+def rsi_entry_candidates(limit: int = 10, db: Session = Depends(get_db)):
+    """The most oversold pullbacks in the scan universe, excluding anything
+    already held.
+
+    Ranked by how far RSI(2) printed *below* the entry trigger — the deeper
+    the dip, the further the strategy expects it to snap back. That is the
+    mean-reversion mirror of ranking Donchian candidates by how far above
+    the breakout they closed.
+    """
+    limit = max(1, min(limit, 10))
+    equity, _ = resolve_equity(db)
+    risk = get_settings(db).risk_fraction
+    held = {t for (t,) in db.query(models.Holding.ticker).all()}
+
+    rows = (
+        db.query(models.RsiSignal)
+        .filter(models.RsiSignal.entry_signal == True)  # noqa: E712
+        .all()
+    )
+
+    # Ascending RSI: most oversold first. Rows with no RSI at all sort last
+    # rather than first, which a plain ascending sort on None would get
+    # backwards.
+    scored = [r for r in rows if r.ticker not in held]
+    scored.sort(key=lambda r: (r.rsi is None, r.rsi if r.rsi is not None else 0.0))
+
+    return [
+        schemas.RsiEntryCandidateOut(
+            ticker=r.ticker,
+            close=r.close,
+            rsi=r.rsi,
+            sma_fast=r.sma_fast,
+            sma_trend=r.sma_trend,
+            atr=r.atr,
+            suggested_shares=suggested_shares(r.stop_distance, equity, risk),
+            oversold_depth=(RSI_ENTRY_THRESHOLD - r.rsi) if r.rsi is not None else None,
+            as_of_date=r.as_of_date,
+        )
+        for r in scored[:limit]
+    ]
+
+
 def _account_out(db: Session, prices: Optional[dict] = None) -> schemas.AccountOut:
     settings = get_settings(db)
     equity, source = resolve_equity(db, prices)
@@ -315,6 +414,7 @@ def _backtest_run_out(db: Session, run: models.BacktestRun) -> schemas.BacktestR
         id=run.id,
         label=run.label or run.variant,
         universe=run.universe or "",
+        strategy=run.strategy or "donchian",
         variant=run.variant,
         start_date=run.start_date,
         end_date=run.end_date,
@@ -323,44 +423,54 @@ def _backtest_run_out(db: Session, run: models.BacktestRun) -> schemas.BacktestR
             json.loads(run.benchmark_summary_json) if run.benchmark_summary_json else None
         ),
         equity=[
-            schemas.EquityPointOut(date=p.as_of_date, strategy=p.strategy, benchmark=p.benchmark)
+            schemas.EquityPointOut(
+                date=p.as_of_date,
+                strategy=p.strategy,
+                benchmark=p.benchmark,
+                exposure=p.exposure,
+            )
             for p in points
         ],
     )
 
 
-@app.get("/api/backtest", response_model=schemas.BacktestOut)
-def get_backtest(db: Session = Depends(get_db)):
-    """The most recent backtest of each variant, with equity curves.
+def _backtest_out(db: Session, strategy: str) -> schemas.BacktestOut:
+    """The most recent backtest of each variant for one strategy.
 
-    Read-only and unauthenticated like the rest of the GETs — a backtest
-    contains no holdings and no account data, only what the strategy would
-    have done on public price history.
-
-    Returns empty rather than 404 when nothing has been run: the dashboard
-    renders an explanatory empty state, which is more useful than an error
-    for a feature that simply hasn't been used yet.
+    Filtered by strategy rather than served as one pile: each dashboard
+    page shows its own system, and mixing them would put an RSI curve under
+    a Donchian heading. Runs written before the `strategy` column existed
+    are Donchian ones, hence the NULL fallback.
     """
-    runs = {}
-    for variant in ("faithful", "atr_stop"):
-        run = (
-            db.query(models.BacktestRun)
-            .filter(models.BacktestRun.variant == variant)
-            .order_by(models.BacktestRun.created_at.desc())
-            .first()
+    stored = [
+        run
+        for run in db.query(models.BacktestRun).order_by(models.BacktestRun.created_at.desc()).all()
+        if (run.strategy or "donchian") == strategy
+    ]
+
+    def latest(variant: str, point_in_time: bool) -> Optional[models.BacktestRun]:
+        return next(
+            (
+                run
+                for run in stored
+                if run.variant == variant
+                and is_point_in_time(run.universe or "") == point_in_time
+            ),
+            None,
         )
-        if run:
-            runs[variant] = _backtest_run_out(db, run)
+
+    faithful = latest("faithful", False)
+    atr_stop = latest("atr_stop", False)
+    # The point-in-time run is an extra curve beside the other two, not a
+    # replacement for them. Selecting purely on "newest of each variant"
+    # would let it silently displace the current-list run it exists to be
+    # compared against — the comparison is the whole point of running it.
+    point_in_time = latest("faithful", True)
 
     caveats: list[str] = []
-    primary = runs.get("faithful") or runs.get("atr_stop")
+    primary = faithful or atr_stop
     if primary:
-        cfg = json.loads(
-            db.query(models.BacktestRun)
-            .filter(models.BacktestRun.id == primary.id)
-            .first()
-            .config_json
-        )
+        cfg = json.loads(primary.config_json) if primary.config_json else {}
         caveats.append(
             f"Costs modelled: {cfg.get('cost_bps', 0):.0f} bps commission + "
             f"{cfg.get('slippage_bps', 0):.0f} bps slippage per side."
@@ -372,7 +482,14 @@ def get_backtest(db: Session = Depends(get_db)):
         caveats.append(
             "Prices include reinvested dividends; the benchmark is treated identically."
         )
-        if "sp500" in (primary.universe or ""):
+        if "sp500" in (primary.universe or "") and point_in_time:
+            caveats.append(
+                "Survivorship bias is bracketed, not removed: the main run uses today's "
+                "S&P 500 membership and so overstates, the point-in-time run freezes "
+                "membership at 2016 and so understates. The honest reading is that the "
+                "real result lies between the two strategy curves."
+            )
+        elif "sp500" in (primary.universe or ""):
             caveats.append(
                 "Survivorship bias: the universe is today's S&P 500 membership, so only "
                 "companies that survived and stayed in the index were tested. Real-time "
@@ -384,12 +501,44 @@ def get_backtest(db: Session = Depends(get_db)):
         )
 
     return schemas.BacktestOut(
-        faithful=runs.get("faithful"), atr_stop=runs.get("atr_stop"), caveats=caveats
+        faithful=_backtest_run_out(db, faithful) if faithful else None,
+        atr_stop=_backtest_run_out(db, atr_stop) if atr_stop else None,
+        point_in_time=_backtest_run_out(db, point_in_time) if point_in_time else None,
+        caveats=caveats,
     )
+
+
+@app.get("/api/backtest", response_model=schemas.BacktestOut)
+def get_backtest(db: Session = Depends(get_db)):
+    """The Donchian breakout backtest, with equity curves.
+
+    Read-only and unauthenticated like the rest of the GETs — a backtest
+    contains no holdings and no account data, only what the strategy would
+    have done on public price history.
+
+    Returns empty rather than 404 when nothing has been run: the dashboard
+    renders an explanatory empty state, which is more useful than an error
+    for a feature that simply hasn't been used yet.
+    """
+    return _backtest_out(db, "donchian")
+
+
+@app.get("/api/rsi/backtest", response_model=schemas.BacktestOut)
+def get_rsi_backtest(db: Session = Depends(get_db)):
+    """The RSI(2) pullback backtest. Same shape as `/api/backtest`, and
+    strictly separate from it — neither strategy's runs can displace the
+    other's."""
+    return _backtest_out(db, "rsi")
 
 
 @app.get("/api/status", response_model=schemas.StatusOut)
 def status(db: Session = Depends(get_db)):
-    """When signals were last computed, so the frontend can flag stale data."""
+    """When each strategy's signals were last computed, so the frontend can
+    flag stale data per page."""
     last = db.query(func.max(models.Signal.updated_at)).scalar()
-    return schemas.StatusOut(demo_mode=DEMO_MODE, signals_last_updated=last)
+    rsi_last = db.query(func.max(models.RsiSignal.updated_at)).scalar()
+    return schemas.StatusOut(
+        demo_mode=DEMO_MODE,
+        signals_last_updated=last,
+        rsi_signals_last_updated=rsi_last,
+    )

@@ -137,7 +137,84 @@ function VariantComparison({ faithful, stopped }: { faithful: BacktestRun; stopp
   )
 }
 
-export function BacktestPanel({ backtest, loading }: { backtest: Backtest | null; loading: boolean }) {
+/** The snapshot year, read from the universe label the backtest CLI
+ *  stored (`sp500_2016,etfs`), falling back to the run's own start. */
+function snapshotYear(run: BacktestRun): string {
+  return run.universe.match(/sp500_(\d{4})/)?.[1] ?? run.start_date.slice(0, 4)
+}
+
+function Figure({ children }: { children: string }) {
+  return <span className="text-foreground font-medium tnum">{children}</span>
+}
+
+/**
+ * What the chart above is actually saying, in prose.
+ *
+ * Figures are read from the runs rather than written into the text: a
+ * caption quoting a number the chart no longer shows is worse than no
+ * caption, and these are regenerated every time a backtest is re-run.
+ */
+function ChartNote({ run, pointInTime }: { run: BacktestRun; pointInTime: BacktestRun | null }) {
+  const strategy = pct(num(run.summary, 'total_return'), 0)
+  const benchmark = pct(num(run.benchmark_summary, 'total_return'), 0)
+
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-muted/40 px-4 py-3">
+      <p className="text-xs font-medium">Reading this chart</p>
+      <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+        Every line starts at 100 — $100 invested on the first day, compounded by that series' own
+        returns — so their shapes stay comparable even though the runs differ.{' '}
+        {pointInTime ? (
+          <>
+            The solid and dashed lines are the <em>same</em> strategy over two different universes:
+            today's index membership (<Figure>{strategy}</Figure>) and the S&amp;P 500 frozen as it
+            stood in {snapshotYear(pointInTime)} (
+            <Figure>{pct(num(pointInTime.summary, 'total_return'), 0)}</Figure>). Today's list omits
+            every company that failed along the way, and the {snapshotYear(pointInTime)} list omits
+            everything added since — so the pair brackets the truth rather than pinning it down, and
+            buy &amp; hold's <Figure>{benchmark}</Figure> sits inside that bracket.
+          </>
+        ) : (
+          <>
+            The strategy ended at <Figure>{strategy}</Figure> against <Figure>{benchmark}</Figure>{' '}
+            for buy &amp; hold.{' '}
+            {run.strategy === 'rsi' ? (
+              <>
+                Read those side by side only with the band underneath in view: this strategy was
+                invested an average of{' '}
+                <Figure>{pct(num(run.summary, 'avg_gross_exposure'), 0)}</Figure> of the account, so
+                it is not competing for the same money. The fairer comparisons are risk-adjusted —
+                Sharpe <Figure>{fixed(num(run.summary, 'sharpe'))}</Figure> against{' '}
+                <Figure>{fixed(num(run.benchmark_summary, 'sharpe'))}</Figure>, and a worst
+                drawdown of <Figure>{pct(num(run.summary, 'max_drawdown'))}</Figure> against{' '}
+                <Figure>{pct(num(run.benchmark_summary, 'max_drawdown'))}</Figure>. A flat stretch
+                in the line with an empty band beneath it is cash, not a losing position.
+              </>
+            ) : (
+              <>
+                Steepness is return and depth is drawdown — the long flat-to-falling stretches are
+                what holding this system through a bad year actually feels like.
+              </>
+            )}
+          </>
+        )}
+      </p>
+    </div>
+  )
+}
+
+export function BacktestPanel({
+  backtest,
+  loading,
+  strategy = 'donchian',
+}: {
+  backtest: Backtest | null
+  loading: boolean
+  /** Only needed for the empty state, which has to name the command that
+   *  would populate it — every other string reads the strategy off the run
+   *  itself, which is authoritative once one exists. */
+  strategy?: 'donchian' | 'rsi'
+}) {
   if (loading) {
     return (
       <Card className="mt-6">
@@ -158,11 +235,29 @@ export function BacktestPanel({ backtest, loading }: { backtest: Backtest | null
         <EmptyState
           icon={<FlaskConical size={28} strokeWidth={1.5} />}
           title="No backtest has been run"
-          hint="Run `python3 -m app.backtest --universe sp500,etfs --both-variants --save` from the backend folder to simulate the strategy over historical prices and populate this panel."
+          hint={
+            <>
+              Run{' '}
+              <code className="font-mono">
+                python3 -m app.backtest --strategy {strategy} --universe sp500,etfs --save
+              </code>{' '}
+              from the backend folder to simulate this strategy over historical prices and populate
+              this panel.
+            </>
+          }
         />
       </Card>
     )
   }
+
+  // The point-in-time curve is only worth drawing beside a run it differs
+  // from in exactly one way — the universe. Against the ATR-stop variant,
+  // or against a commodities run, two things would have changed at once
+  // and the gap between the lines would no longer mean survivorship bias.
+  const pointInTime =
+    run === backtest?.faithful && run.universe.includes('sp500')
+      ? backtest?.point_in_time ?? null
+      : null
 
   const s = run.summary
   const totalReturn = num(s, 'total_return')
@@ -219,7 +314,21 @@ export function BacktestPanel({ backtest, loading }: { backtest: Backtest | null
           />
         </div>
 
-        <EquityChart points={run.equity} />
+        <EquityChart
+          points={run.equity}
+          strategyLabel={pointInTime ? "Strategy — today's members" : 'Strategy'}
+          // Only where it earns its space. Donchian sits ~98% invested, so
+          // the strip would be a solid block saying nothing; RSI is under a
+          // fifth invested, where it's the difference between reading the
+          // curve correctly and not.
+          showExposure={run.strategy === 'rsi'}
+          overlay={
+            pointInTime
+              ? { label: `Strategy — ${snapshotYear(pointInTime)} membership`, points: pointInTime.equity }
+              : null
+          }
+        />
+        <ChartNote run={run} pointInTime={pointInTime} />
 
         <div className="grid gap-6 lg:grid-cols-2 mt-6">
           <div>
@@ -249,7 +358,8 @@ export function BacktestPanel({ backtest, loading }: { backtest: Backtest | null
               {fixed(num(s, 'worst_loss_r'))}×
             </span>{' '}
             its intended risk. Position sizing assumes a stop the strategy doesn't place — the only
-            exit is the Donchian breakdown, so a gap through it costs whatever it costs.
+            exit is {run.strategy === 'rsi' ? 'the RSI bounce' : 'the Donchian breakdown'}, so a gap
+            through it costs whatever it costs.
           </p>
         </div>
 

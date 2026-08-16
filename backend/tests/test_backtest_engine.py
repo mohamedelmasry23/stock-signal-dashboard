@@ -16,7 +16,7 @@ import pytest
 
 from app.backtest.config import BacktestConfig
 from app.backtest.engine import run_backtest
-from app.signals import compute_signal_frame
+from app.signals import compute_rsi_signal_frame, compute_signal_frame
 
 # Short windows so a test series doesn't need 60 bars of warm-up.
 FAST = dict(n_entry=5, m_exit=3, atr_period=3)
@@ -321,3 +321,188 @@ def test_atr_stop_variant_exits_earlier_than_the_donchian_alone(ohlc):
     assert faithful.trades[0].exit_reason == "donchian_exit"
     # The stop fires intrabar; the Donchian exit waits for the next bar's fill.
     assert stopped.trades[0].exit_date < faithful.trades[0].exit_date
+
+
+# --- the RSI(2) strategy ---------------------------------------------
+#
+# The engine is strategy-agnostic (see app/backtest/strategies.py), so
+# these re-run its two most important properties — no look-ahead, and
+# capital going to the best-ranked candidate — against the second
+# strategy. Passing for Donchian proves nothing about RSI: the ranking
+# key, the warm-up and the shift rules all differ.
+
+
+def ramp_pause_dip(drop=2.0, ramp=20, flat=6):
+    """The shape RSI(2) exists to buy: a strong uptrend, a pause long
+    enough for the average gain to decay, then a short sharp dip.
+
+    The pause is what makes the series work. RSI(2) weights the last two
+    bars at 50% and 25%, so a dip arriving mid-ramp is still competing with
+    a large retained average gain and never reaches the threshold — which
+    is also why real signals cluster after quiet stretches.
+    """
+    closes = [100.0 + 5.0 * i for i in range(ramp)]
+    closes += [closes[-1]] * flat
+    closes += [closes[-1] - drop, closes[-1] - 2 * drop]
+    return closes
+
+
+def rsi_cfg(**overrides):
+    return cfg(strategy="rsi", rsi_trend_period=20, rsi_exit_ma_period=3, **overrides)
+
+
+def test_the_test_series_actually_signals(ohlc):
+    """Guards the three tests below: if `ramp_pause_dip` stopped producing
+    an entry, they would all pass vacuously on zero trades."""
+    frame = ohlc(ramp_pause_dip())
+    signals = compute_rsi_signal_frame(
+        frame, trend_period=20, exit_ma_period=3, atr_period=3
+    )
+    assert bool(signals.iloc[-1]["EntrySignal"])
+
+
+def test_truncation_invariance_for_the_rsi_strategy(ohlc):
+    """The look-ahead detector, pointed at the second strategy.
+
+    RSI and both moving averages deliberately do NOT shift, unlike the
+    Donchian levels — correct, because fills happen on the next bar, but it
+    looks like an inconsistency and is exactly the kind of thing a later
+    edit 'corrects'. This is what would catch that.
+    """
+    closes = ramp_pause_dip()
+    short_end = pd.Timestamp("2026-08-11")
+    long_end = short_end + pd.tseries.offsets.BDay(3)
+    short = ohlc(closes, end=short_end)
+    long = ohlc(closes + [2000.0, 2500.0, 3000.0], end=long_end)
+    assert short.index[0] == long.index[0]
+
+    a = run_backtest({"AAA": short}, rsi_cfg())
+    b = run_backtest({"AAA": long}, rsi_cfg())
+
+    pd.testing.assert_series_equal(a.equity, b.equity.loc[a.equity.index], check_freq=False)
+
+
+def test_rsi_capital_goes_to_the_most_oversold(ohlc):
+    """Capital for one position, three simultaneous pullbacks.
+
+    This is the bias the ranking key exists to prevent. Measured over
+    2016-2026 the strategy produces a median of 9 simultaneous signals and
+    as many as 217 in one day against 20 slots, so on most signalling days
+    the ordering — not the entry rule — decides what gets traded. It must
+    match /api/rsi/entry-candidates, which ranks by RSI ascending, i.e.
+    depth below the trigger descending.
+    """
+    result = run_backtest(
+        {
+            "SHALLOW": ohlc(ramp_pause_dip(drop=1.0)),
+            "DEEPEST": ohlc(ramp_pause_dip(drop=4.0)),
+            "MIDDLE": ohlc(ramp_pause_dip(drop=2.0)),
+        },
+        rsi_cfg(max_positions=1),
+    )
+
+    assert [t.ticker for t in result.trades] == ["DEEPEST"]
+
+
+def test_rsi_warmup_is_driven_by_the_trend_filter():
+    """201 bars, not 56: RSI(2) itself is ready in two bars, but no entry
+    can fire until the 200-day average exists. Reporting Donchian's warm-up
+    for an RSI run would present 145 bars of enforced inactivity as the
+    strategy choosing not to trade."""
+    assert BacktestConfig(
+        start=date(2000, 1, 1), end=date(2100, 1, 1), strategy="rsi"
+    ).warmup_bars == 201
+    assert BacktestConfig(
+        start=date(2000, 1, 1), end=date(2100, 1, 1), strategy="donchian"
+    ).warmup_bars == 56
+
+
+def test_saving_one_strategy_never_deletes_the_other(db, ohlc):
+    """The stored-run replacement rule keeps the latest per
+    strategy+variant+universe. Before `strategy` was part of that filter,
+    saving an RSI run over `sp500,etfs` deleted the Donchian run of the
+    same universe — destroying the result it exists to be compared with."""
+    from app.backtest.store import save_result
+    from app.models import BacktestRun
+
+    frame = ohlc(ramp_pause_dip())
+    save_result(run_backtest({"AAA": frame}, cfg()), universe_label="sp500,etfs")
+    save_result(run_backtest({"AAA": frame}, rsi_cfg()), universe_label="sp500,etfs")
+
+    db.expire_all()
+    stored = {r.strategy for r in db.query(BacktestRun).all()}
+    assert stored == {"donchian", "rsi"}
+
+
+# --- allocation model and cash yield ---------------------------------
+
+
+def test_equal_weight_deploys_its_slice(ohlc):
+    """Each position targets 1/N of equity, where `risk` sizing would have
+    been capped at max_position_fraction. This is the difference that took
+    the RSI basket run from averaging 1.84 positions at ~20% each to
+    something that actually uses the account."""
+    frame = ohlc(ramp_pause_dip())
+
+    risked = run_backtest({"AAA": frame}, rsi_cfg(sizing_mode="risk", max_position_fraction=0.20))
+    equal = run_backtest({"AAA": frame}, rsi_cfg(sizing_mode="equal_weight", target_positions=4))
+
+    risk_notional = risked.trades[0].shares * risked.trades[0].entry_price
+    equal_notional = equal.trades[0].shares * equal.trades[0].entry_price
+
+    # 1/4 of 100k, against 20% of 100k.
+    assert equal_notional == pytest.approx(25_000, rel=0.02)
+    assert risk_notional == pytest.approx(20_000, rel=0.02)
+
+
+def test_equal_weight_never_spends_cash_it_does_not_have(ohlc):
+    """The slice is a target, not a promise: with more concurrent signals
+    than slots, later entries are bounded by remaining cash."""
+    frames = {
+        f"T{i}": ohlc(ramp_pause_dip(drop=1.0 + i)) for i in range(6)
+    }
+    result = run_backtest(frames, rsi_cfg(sizing_mode="equal_weight", target_positions=4))
+
+    assert (result.cash >= -1e-6).all()
+    assert (result.equity > 0).all()
+
+
+def test_equal_weight_r_multiples_come_from_the_position(ohlc):
+    """R has to keep meaning "one stop_distance of adverse move". Under
+    equal weight the size came from the allocation, not a risk target, so
+    recording the intended 1%-of-equity budget would make every R-multiple
+    fiction."""
+    result = run_backtest(
+        {"AAA": ohlc(ramp_pause_dip())},
+        rsi_cfg(sizing_mode="equal_weight", target_positions=4),
+    )
+    trade = result.trades[0]
+
+    expected_risk = trade.shares * trade.stop_distance
+    assert trade.risk_dollars == pytest.approx(expected_risk)
+    assert trade.r_multiple == pytest.approx(trade.pnl / expected_risk)
+
+
+def test_cash_yield_defaults_to_zero_and_changes_nothing(ohlc):
+    """Every result recorded before cash interest existed must reproduce
+    exactly — including the 863.29% Donchian run this pins in miniature."""
+    frame = ohlc(flat_then_breakout(12) + [205.0, 210.0])
+
+    a = run_backtest({"AAA": frame}, cfg())
+    b = run_backtest({"AAA": frame}, cfg(cash_yield_annual=0.0))
+
+    pd.testing.assert_series_equal(a.equity, b.equity)
+
+
+def test_cash_yield_only_pays_on_idle_cash(ohlc):
+    """A strategy holding nothing compounds at the cash rate; the same
+    strategy fully invested barely notices. That asymmetry is the whole
+    reason it matters more for RSI than for Donchian."""
+    flat = ohlc([100.0] * 40)  # never signals, so the account stays in cash
+
+    idle = run_backtest({"AAA": flat}, cfg(cash_yield_annual=0.05))
+    no_yield = run_backtest({"AAA": flat}, cfg(cash_yield_annual=0.0))
+
+    assert not idle.trades  # nothing was bought
+    assert idle.equity.iloc[-1] > no_yield.equity.iloc[-1]
+    assert no_yield.equity.iloc[-1] == pytest.approx(100_000.0)

@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 # DEMO_MODE is the single switch for the future public/portfolio deploy.
@@ -40,3 +41,21 @@ DB_FILENAME = "demo.db" if DEMO_MODE else "real.db"
 # without code changes, and so the test suite can use a throwaway file
 # instead of the real database.
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip() or f"sqlite:///{DATA_DIR / DB_FILENAME}"
+
+# A backtest's universe label names a point-in-time membership snapshot
+# when it carries the snapshot year — `sp500_2016,etfs`, produced by
+# universe_label() in app/backtest/__main__.py.
+#
+# Both the backtest report and the API decide their survivorship wording
+# from this, and they must never disagree: one says the run overstates,
+# the other says it understates, and the wrong one on the wrong run is
+# actively misleading. It lives here rather than in the backtest package
+# because app/main.py must not import that package (see its docstring),
+# and here is the one dependency-free module both already import.
+POINT_IN_TIME_UNIVERSE = re.compile(r"sp500_\d{4}")
+
+
+def is_point_in_time(universe_label: str) -> bool:
+    """True when a run's universe came from a frozen membership snapshot
+    rather than from today's scraped index."""
+    return bool(POINT_IN_TIME_UNIVERSE.search(universe_label or ""))

@@ -20,8 +20,8 @@ import pandas as pd
 
 from .account import get_settings, resolve_equity, suggested_shares
 from .database import Base, SessionLocal, engine, sync_new_columns
-from .models import Holding, Signal, Universe
-from .signals import compute_signal_frame
+from .models import Holding, RsiSignal, Signal, Universe
+from .signals import compute_rsi_signal_frame, compute_signal_frame
 from .timeutil import utcnow
 
 # Deliberately fictitious names/tickers — never real market tickers —
@@ -78,6 +78,7 @@ def seed():
     db = SessionLocal()
     try:
         db.query(Signal).delete()
+        db.query(RsiSignal).delete()
         db.query(Universe).delete()
         db.query(Holding).delete()
 
@@ -110,6 +111,28 @@ def seed():
                 )
             )
 
+            # The second strategy, off the same synthetic bars — so the
+            # demo's RSI page is populated rather than showing an empty
+            # state that looks like a broken deploy.
+            rsi_last = compute_rsi_signal_frame(df).iloc[-1]
+            db.add(
+                RsiSignal(
+                    ticker=ticker,
+                    as_of_date=sig.index[-1].date(),
+                    close=clean(rsi_last["Close"]),
+                    prev_close=clean(sig["Close"].iloc[-2]) if len(sig) >= 2 else None,
+                    rsi=clean(rsi_last["RSI"]),
+                    sma_fast=clean(rsi_last["SMA_Fast"]),
+                    sma_trend=clean(rsi_last["SMA_Trend"]),
+                    atr=clean(rsi_last["ATR"]),
+                    stop_distance=clean(rsi_last["StopDistance"]),
+                    entry_signal=bool(rsi_last["EntrySignal"]),
+                    exit_signal=bool(rsi_last["ExitSignal"]),
+                    suggested_shares=clean(rsi_last["Shares"]),
+                    updated_at=utcnow(),
+                )
+            )
+
             if ticker in DEMO_HOLDINGS:
                 db.add(
                     Holding(
@@ -133,7 +156,7 @@ def seed():
         # Restate sizing now that holdings and closes both exist, matching
         # what the pipeline does at the end of a real run.
         equity, source = resolve_equity(db)
-        for sig in db.query(Signal).all():
+        for sig in [*db.query(Signal).all(), *db.query(RsiSignal).all()]:
             shares = suggested_shares(sig.stop_distance, equity, settings.risk_fraction)
             if shares is not None:
                 sig.suggested_shares = shares

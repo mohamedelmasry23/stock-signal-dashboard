@@ -110,9 +110,69 @@ class EntryCandidateOut(BaseModel):
     as_of_date: Optional[date] = None
 
 
+class RsiSignalOut(BaseModel):
+    """The RSI(2) pullback equivalent of SignalOut. Same envelope, same
+    meaning for `stop_distance`/`suggested_shares`; different indicators,
+    because it's a different strategy rather than a variant of the same
+    one."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ticker: str
+    as_of_date: Optional[date] = None
+    close: Optional[float] = None
+    prev_close: Optional[float] = None
+    rsi: Optional[float] = None
+    sma_fast: Optional[float] = None   # 5-day average — the exit level
+    sma_trend: Optional[float] = None  # 200-day average — the entry filter
+    atr: Optional[float] = None
+    stop_distance: Optional[float] = None
+    entry_signal: bool
+    exit_signal: bool
+    suggested_shares: Optional[float] = None
+    updated_at: Optional[UtcDateTime] = None
+
+
+class RsiHoldingOut(BaseModel):
+    """A holding as the RSI page sees it. Identical to HoldingOut except
+    that `signal` carries RSI fields — the position is the same position,
+    but which of your holdings is flagged for exit depends entirely on
+    which strategy is asking."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ticker: str
+    shares: Optional[float] = None
+    added_at: UtcDateTime
+    signal: Optional[RsiSignalOut] = None
+    quote: Optional[QuoteOut] = None
+    market_value: Optional[float] = None
+
+
+class RsiEntryCandidateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    ticker: str
+    close: float
+    rsi: Optional[float] = None
+    sma_fast: Optional[float] = None
+    sma_trend: Optional[float] = None
+    atr: Optional[float] = None
+    suggested_shares: Optional[float] = None
+    # RSI points below the entry trigger — the ranking key, mirroring the
+    # role `breakout_strength` plays for Donchian.
+    oversold_depth: Optional[float] = None
+    as_of_date: Optional[date] = None
+
+
 class StatusOut(BaseModel):
     demo_mode: bool
     signals_last_updated: Optional[UtcDateTime] = None
+    # Written by the same pipeline run, but tracked separately so the RSI
+    # page reports its own freshness rather than borrowing Donchian's —
+    # they diverge whenever one strategy's pass fails and the other's
+    # doesn't.
+    rsi_signals_last_updated: Optional[UtcDateTime] = None
 
 
 class AccountOut(BaseModel):
@@ -138,6 +198,9 @@ class EquityPointOut(BaseModel):
     date: date
     strategy: Optional[float] = None
     benchmark: Optional[float] = None
+    # Share of equity in positions on this bar, 0..1. Null on runs stored
+    # before it was recorded.
+    exposure: Optional[float] = None
 
 
 class BacktestRunOut(BaseModel):
@@ -149,6 +212,7 @@ class BacktestRunOut(BaseModel):
     id: int
     label: str
     universe: str
+    strategy: str  # "donchian" | "rsi"
     variant: str  # "faithful" | "atr_stop"
     start_date: date
     end_date: date
@@ -159,10 +223,17 @@ class BacktestRunOut(BaseModel):
 
 class BacktestOut(BaseModel):
     """Both variants of the most recent run, plus the caveats that must
-    travel with any number quoted from them."""
+    travel with any number quoted from them.
+
+    `point_in_time` is the same faithful strategy measured over a frozen
+    historical index membership instead of today's. It's a separate field
+    rather than a third variant because it differs in universe, not in
+    rules — and the dashboard draws it against `faithful` to show how wide
+    the survivorship-bias bracket really is."""
 
     faithful: Optional[BacktestRunOut] = None
     atr_stop: Optional[BacktestRunOut] = None
+    point_in_time: Optional[BacktestRunOut] = None
     caveats: List[str] = []
 
 

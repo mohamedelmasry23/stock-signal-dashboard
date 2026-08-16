@@ -1,8 +1,10 @@
-import { AlertTriangle, ArrowDown, ArrowUp, Briefcase, Trash2 } from 'lucide-react'
+import { AlertTriangle, Briefcase, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import type { Holding } from '../lib/api'
 import { formatMoney } from '../lib/format'
+import { dayChangePct, isLive } from '../lib/holdings'
 import { AddHoldingForm } from './AddHoldingForm'
+import { DayChange } from './DayChange'
 import { Badge, Button, Card, CardHeader, EmptyState, Input, Skeleton, cn } from './ui'
 
 /**
@@ -15,71 +17,6 @@ function exitHeadroom(h: Holding): number | null {
   const s = h.signal
   if (!s?.close || s.donchian_low == null || s.close <= 0) return null
   return ((s.close - s.donchian_low) / s.close) * 100
-}
-
-/**
- * The day's move.
- *
- * Prefers Yahoo's own `regularMarketChangePercent` when a live quote is
- * present: it's the figure quoted everywhere else, and Yahoo handles
- * halts, splits and odd sessions in ways a naive (last - prev) / prev
- * gets subtly wrong. Falls back to the stored end-of-day closes when
- * there is no quote, so the dashboard still works with Yahoo unreachable.
- *
- * Null rather than 0 when neither source can supply it — a ticker with a
- * single bar of history has an *unknown* move, and a confident "0.00%"
- * would be a claim the data doesn't support.
- */
-function dayChangePct(h: Holding): number | null {
-  if (h.quote?.change_percent != null) return h.quote.change_percent
-
-  const s = h.signal
-  if (s?.close == null || s.prev_close == null || s.prev_close <= 0) return null
-  return ((s.close - s.prev_close) / s.prev_close) * 100
-}
-
-/** Whether this row's numbers came from a live quote rather than the last
- *  stored close. Drives the "live" hint so a stale figure is never
- *  mistaken for a current one. */
-function isLive(h: Holding): boolean {
-  return h.quote?.price != null
-}
-
-function DayChange({ pct, live = false }: { pct: number | null; live?: boolean }) {
-  if (pct === null) {
-    return (
-      <span className="text-muted-foreground" title="No previous close available for this ticker">
-        —
-      </span>
-    )
-  }
-
-  // Exactly flat gets neither colour nor arrow: it's neither a gain nor a
-  // loss, and painting it green would overstate the move.
-  const direction = pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat'
-
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-0.5 font-medium',
-        direction === 'up' && 'text-positive',
-        direction === 'down' && 'text-destructive',
-        direction === 'flat' && 'text-muted-foreground',
-      )}
-      title={
-        live
-          ? "Today's move, from Yahoo's own quote as of the last refresh"
-          : 'Move since the previous close, as of the last pipeline run'
-      }
-    >
-      {direction === 'up' && <ArrowUp size={11} strokeWidth={2.5} aria-hidden="true" />}
-      {direction === 'down' && <ArrowDown size={11} strokeWidth={2.5} aria-hidden="true" />}
-      {/* The arrow is decorative; the sign is spelled out for screen
-          readers so the direction isn't carried by colour alone. */}
-      <span className="sr-only">{direction === 'down' ? 'down' : direction === 'up' ? 'up' : ''}</span>
-      {Math.abs(pct).toFixed(2)}%
-    </span>
-  )
 }
 
 function HoldingRow({

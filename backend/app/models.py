@@ -35,7 +35,15 @@ class BacktestRun(Base):
     created_at = Column(DateTime, default=utcnow, index=True)
     label = Column(String)
     universe = Column(String)
-    # "faithful" (Donchian exit only, as the dashboard implements) or
+    # Which system was measured: "donchian" or "rsi". Part of the identity
+    # of a run, not decoration — `save_result` replaces the previous run
+    # matching strategy+variant+universe, and without this field an RSI run
+    # would delete the Donchian run it was meant to be compared against.
+    #
+    # Nullable because rows written before this column existed have no
+    # value; readers treat NULL as "donchian", which is what those rows are.
+    strategy = Column(String, index=True, default="donchian", nullable=True)
+    # "faithful" (strategy's own exit only, as the dashboard implements) or
     # "atr_stop" (the comparison run with a hard stop).
     variant = Column(String, index=True)
     start_date = Column(Date)
@@ -58,6 +66,11 @@ class BacktestEquityPoint(Base):
     as_of_date = Column(Date, nullable=False)
     strategy = Column(Float)
     benchmark = Column(Float, nullable=True)
+    # Fraction of equity in positions on this bar, 0..1. Stored because a
+    # bare equity curve cannot distinguish "held on and went nowhere" from
+    # "was in cash" — a distinction that is the whole story for a strategy
+    # invested under a fifth of the time. Null on runs predating it.
+    exposure = Column(Float, nullable=True)
 
 
 class BacktestTrade(Base):
@@ -133,6 +146,41 @@ class Signal(Base):
     prev_close = Column(Float, nullable=True)
     donchian_high = Column(Float, nullable=True)   # N-day (55) entry level
     donchian_low = Column(Float, nullable=True)    # M-day (20) exit level
+    atr = Column(Float, nullable=True)
+    stop_distance = Column(Float, nullable=True)
+    entry_signal = Column(Boolean, default=False)
+    exit_signal = Column(Boolean, default=False)
+    suggested_shares = Column(Float, nullable=True)
+    updated_at = Column(DateTime, default=utcnow)
+
+
+class RsiSignal(Base):
+    """
+    Latest computed RSI(2) pullback snapshot per ticker — the mean-reversion
+    strategy, written by the same daily pipeline run that writes `signals`
+    and from the same fetched bars.
+
+    A separate table rather than more columns on `Signal`, because the two
+    strategies disagree by design: the same ticker can carry an entry here
+    and an exit there on the same day, and one row per ticker cannot hold
+    both. Keeping them apart also means a change to one strategy's stored
+    fields can't disturb the other.
+
+    The indicator columns differ from Donchian's, but `atr`,
+    `stop_distance` and `suggested_shares` mean exactly the same thing in
+    both — sizing is shared, so a position is risked identically no matter
+    which strategy proposed it.
+    """
+
+    __tablename__ = "rsi_signals"
+
+    ticker = Column(String, primary_key=True)
+    as_of_date = Column(Date)
+    close = Column(Float)
+    prev_close = Column(Float, nullable=True)
+    rsi = Column(Float, nullable=True)         # RSI(2), Wilder-smoothed
+    sma_fast = Column(Float, nullable=True)    # 5-day exit average
+    sma_trend = Column(Float, nullable=True)   # 200-day trend filter
     atr = Column(Float, nullable=True)
     stop_distance = Column(Float, nullable=True)
     entry_signal = Column(Boolean, default=False)

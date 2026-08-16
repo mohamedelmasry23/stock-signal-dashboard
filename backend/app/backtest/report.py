@@ -14,8 +14,10 @@ from typing import Optional
 
 import pandas as pd
 
+from ..config import is_point_in_time
 from .config import BacktestConfig
 from .engine import BacktestResult
+from .strategies import get_strategy
 
 
 def _pct(value: Optional[float], digits: int = 2) -> str:
@@ -30,6 +32,33 @@ def _money(value: Optional[float]) -> str:
     return "—" if value is None else f"${value:,.2f}"
 
 
+def _entry_dates(result: BacktestResult) -> str:
+    """Distinct entry dates, printed beside the trade count.
+
+    Trades opened on the same day share one market move, so they are not
+    independent observations. Mean-reversion strategies enter in bursts on
+    market-wide selloffs, which means a four-figure trade count can rest on
+    a couple of hundred genuinely separate events. Printing both makes the
+    gap visible instead of leaving the trade count to imply a sample size
+    it doesn't have.
+    """
+    if not result.trades:
+        return "0"
+    return f"{len({t.entry_date for t in result.trades}):,}"
+
+
+def _total_costs(result: BacktestResult) -> float:
+    """Every commission and slippage charge the run paid.
+
+    Turnover is the variable that decides whether a short-holding strategy
+    survives contact with reality: the same per-trade cost that is
+    negligible over 437 trades is ruinous over ten times as many. This puts
+    the total in front of the reader rather than leaving it implied by the
+    bps assumption in the caveats.
+    """
+    return sum(t.entry_cost + t.exit_cost for t in result.trades)
+
+
 def caveats(result: BacktestResult, universe_label: str, dropped: int = 0) -> list[str]:
     """What a reader must know before quoting any number above."""
     cfg = result.config
@@ -42,7 +71,15 @@ def caveats(result: BacktestResult, universe_label: str, dropped: int = 0) -> li
         f"the benchmark is treated identically.",
     ]
 
-    if "sp500" in universe_label:
+    if is_point_in_time(universe_label):
+        notes.append(
+            "POINT-IN-TIME UNIVERSE: membership is frozen at the snapshot date, so "
+            "companies removed from the index later are back in and companies added "
+            "later are absent. That removes the survivor filter and introduces the "
+            "mirror bias — treat the absolute return as a pessimistic floor, not an "
+            "estimate."
+        )
+    elif "sp500" in universe_label:
         notes.append(
             "SURVIVORSHIP BIAS: the universe is today's S&P 500 membership, so this "
             "tests only companies that both survived and stayed in the index. Real-time "
@@ -53,18 +90,36 @@ def caveats(result: BacktestResult, universe_label: str, dropped: int = 0) -> li
         notes.append(f"{dropped} ticker(s) returned no data and were silently excluded.")
 
     if not cfg.use_atr_stop:
+        exit_rule = (
+            "the RSI bounce" if cfg.strategy == "rsi" else "the Donchian breakdown"
+        )
         notes.append(
-            "No stop-loss: the only exit is the Donchian breakdown, so a position sized "
-            "to risk "
+            f"No stop-loss: the only exit is {exit_rule}, so a position sized to risk "
             f"{cfg.risk_fraction * 100:.1f}% can lose more than that on a gap. See "
             "'losses worse than 1R' below."
         )
 
+    if cfg.strategy == "rsi":
+        notes.append(
+            "Entries cluster: this strategy buys dips, and dips arrive market-wide. "
+            "Trades opened on the same day share one move and are not independent "
+            "observations — read 'distinct entry dates' above, not the trade count, "
+            "as the sample size."
+        )
+        if cfg.risk_free_annual == 0:
+            notes.append(
+                "Idle cash earns 0% here, and Sharpe subtracts a 0% risk-free rate. For "
+                "a strategy that spends much of its time in cash these pull the result "
+                "in OPPOSITE directions — understating the return, overstating the "
+                "risk-adjusted figure. Set --risk-free deliberately before comparing "
+                "this against a fully-invested system."
+            )
+
     years = (result.equity.index[-1] - result.equity.index[0]).days / 365.25
     if years < 5:
         notes.append(
-            f"Only {years:.1f} years of data. A 55-day breakout system trades rarely, so "
-            "this is a small sample — the result is weak evidence either way."
+            f"Only {years:.1f} years of data — a small sample, so the result is weak "
+            "evidence either way."
         )
     return notes
 
@@ -95,8 +150,25 @@ def render_summary(
         "",
         f"{s.get('start')} to {s.get('end')}  ({s.get('bars')} bars, "
         f"universe: {universe_label or 'custom'})",
+        f"Strategy: {get_strategy(cfg.strategy).label}",
+        f"Sizing: "
+        + (
+            f"equal weight, 1/{cfg.target_positions} of equity per position"
+            if cfg.sizing_mode == "equal_weight"
+            else f"risk-based, {cfg.risk_fraction:.1%} per position "
+                 f"(capped at {cfg.max_position_fraction:.0%})"
+        )
+        + (
+            f" · cash earns {cfg.cash_yield_annual:.1%}"
+            if cfg.cash_yield_annual
+            else " · cash earns 0%"
+        ),
         f"Variant: {cfg.variant}"
-        + ("  (Donchian exit only — no stop-loss)" if not cfg.use_atr_stop else f"  (with {cfg.k_atr:g}x ATR stop)"),
+        + (
+            "  (strategy's own exit only — no stop-loss)"
+            if not cfg.use_atr_stop
+            else f"  (with {cfg.k_atr:g}x ATR stop)"
+        ),
         "",
         f"{'':<{width}}{'STRATEGY':>14}{'BENCHMARK':>14}",
     ]
@@ -112,6 +184,8 @@ def render_summary(
         f"{'Avg win / loss':<{width}}{_money(s.get('avg_win')) + ' / ' + _money(s.get('avg_loss')):>14}",
         f"{'Avg win / loss (R)':<{width}}{_num(s.get('avg_win_r')) + ' / ' + _num(s.get('avg_loss_r')):>14}",
         f"{'Avg bars held':<{width}}{_num(s.get('avg_bars_held'), 1):>14}",
+        f"{'Distinct entry dates':<{width}}{_entry_dates(result):>14}",
+        f"{'Costs paid':<{width}}{_money(_total_costs(result)):>14}",
         "",
         "## Risk model reality check",
         f"{'Losses worse than 1R':<{width}}{_pct(s.get('pct_losses_worse_than_1r')):>14}",
