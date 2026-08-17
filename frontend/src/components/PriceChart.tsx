@@ -66,6 +66,12 @@ function humanDate(iso: string): string {
   return `${monthOf(iso)} ${Number(iso.slice(8, 10))}, ${iso.slice(0, 4)}`
 }
 
+/** "10 Aug 26" — the tooltip form. Every character there is chart the box
+ *  is covering, and the two-digit year is unambiguous on a decade of bars. */
+function shortDate(iso: string): string {
+  return `${Number(iso.slice(8, 10))} ${monthOf(iso)} ${iso.slice(2, 4)}`
+}
+
 /** Round price-axis values: 400, 420, 440 rather than 388.23, 396.71. */
 function niceTicks(min: number, max: number, target = 5): number[] {
   if (!(max > min)) return [min]
@@ -575,29 +581,27 @@ export function PriceChart({
             levels — the numbers you can't get any other way. */}
         {hovered && (
           <div
-            className="pointer-events-none absolute top-2 z-10 rounded-lg border border-border bg-popover/95 px-2.5 py-1.5 text-[11px] tnum whitespace-nowrap shadow-[0_1px_2px_0_rgb(0_0_0_/_0.18)]"
+            className="pointer-events-none absolute top-1 z-10 rounded-md border border-border bg-popover/95 px-1.5 py-1 text-[10px] leading-tight tnum whitespace-nowrap shadow-[0_1px_2px_0_rgb(0_0_0_/_0.18)]"
             style={{
               left: `${(xFor(hover as number) / WIDTH) * 100}%`,
               transform:
-                (xFor(hover as number) / WIDTH) > 0.6 ? 'translateX(-100%)' : 'translateX(8px)',
+                (xFor(hover as number) / WIDTH) > 0.6 ? 'translateX(-100%)' : 'translateX(6px)',
             }}
           >
-            <p className="font-medium mb-1">
-              {humanDate(hovered.date)}
+            <p className="font-medium">
+              {shortDate(hovered.date)}
               {hovered.partial && (
-                <span className="text-muted-foreground font-normal"> · in progress</span>
+                <span className="text-muted-foreground font-normal"> · live</span>
               )}
             </p>
-            {/* auto columns spread by justify-between, not two equal
-                fractions: the panel is only as wide as its widest line, and
-                equal halves are narrower than "421.82" — the label and the
-                value end up touching. */}
-            <dl className="grid grid-cols-[auto_auto] justify-between gap-x-4 gap-y-0.5 text-muted-foreground">
-              <dt>55d high</dt>
-              <dd className="text-right text-foreground">{formatPrice(hovered.high55)}</dd>
-              <dt>20d low</dt>
-              <dd className="text-right text-foreground">{formatPrice(hovered.low20)}</dd>
-            </dl>
+            {/* Both levels on one line rather than a two-row list: the panel
+                covers chart either way, and its area is what matters, so
+                trading a row for a little width is the better shape. */}
+            <p className="text-muted-foreground">
+              55d <span className="text-foreground">{formatPrice(hovered.high55)}</span>
+              <span className="mx-1 opacity-50">·</span>
+              20d <span className="text-foreground">{formatPrice(hovered.low20)}</span>
+            </p>
           </div>
         )}
       </div>
