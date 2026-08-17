@@ -126,14 +126,6 @@ function bandRuns(high: (number | null)[], low: (number | null)[]): [number, num
   return runs
 }
 
-function compactVolume(v: number | null): string {
-  if (v == null) return '—'
-  if (v >= 1e9) return `${(v / 1e9).toFixed(2)}B`
-  if (v >= 1e6) return `${(v / 1e6).toFixed(2)}M`
-  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`
-  return String(Math.round(v))
-}
-
 export function PriceChart({
   bars,
   partialLastBar = false,
@@ -282,26 +274,19 @@ export function PriceChart({
     })
     .join(' ')
 
+  // Only what the tooltip and the screen-reader line actually read. The
+  // close is on the right axis as a chip rather than in here.
   const hovered =
     hover != null
       ? {
           date: bars.dates[hover],
-          open: bars.open[hover],
-          high: bars.high[hover],
-          low: bars.low[hover],
           close: bars.close[hover],
-          volume: bars.volume[hover],
           high55: bars.donchian_high[hover],
           low20: bars.donchian_low[hover],
           entry: bars.entry_index.includes(hover),
           exit: bars.exit_index.includes(hover),
           partial: partialLastBar && hover === n - 1,
         }
-      : null
-
-  const atrsToExit =
-    hovered && hovered.close != null && hovered.low20 != null
-      ? hovered.close - hovered.low20
       : null
 
   const lastClose = bars.close[n - 1]
@@ -581,10 +566,16 @@ export function PriceChart({
         {/* HTML rather than SVG <text>: multi-line layout, the project's own
             type tokens, and no manual text measurement to size a background
             box. Positioned as a percentage of the container width, which
-            tracks the scaled viewBox without a ResizeObserver. */}
+            tracks the scaled viewBox without a ResizeObserver.
+
+            Kept to three lines on purpose. A full OHLC-and-volume readout is
+            a big opaque panel sitting on top of the thing it describes, and
+            it hides more chart than it explains. The close is already on the
+            right axis as a chip, so what's left is the date and the two
+            levels — the numbers you can't get any other way. */}
         {hovered && (
           <div
-            className="pointer-events-none absolute top-2 z-10 w-44 rounded-lg border border-border bg-popover/95 px-3 py-2 text-[11px] tnum shadow-[0_1px_2px_0_rgb(0_0_0_/_0.18)]"
+            className="pointer-events-none absolute top-2 z-10 rounded-lg border border-border bg-popover/95 px-2.5 py-1.5 text-[11px] tnum whitespace-nowrap shadow-[0_1px_2px_0_rgb(0_0_0_/_0.18)]"
             style={{
               left: `${(xFor(hover as number) / WIDTH) * 100}%`,
               transform:
@@ -597,40 +588,16 @@ export function PriceChart({
                 <span className="text-muted-foreground font-normal"> · in progress</span>
               )}
             </p>
-            <dl className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-muted-foreground">
-              <dt>Open</dt>
-              <dd className="text-right text-foreground">{formatPrice(hovered.open)}</dd>
-              <dt>High</dt>
-              <dd className="text-right text-foreground">{formatPrice(hovered.high)}</dd>
-              <dt>Low</dt>
-              <dd className="text-right text-foreground">{formatPrice(hovered.low)}</dd>
-              <dt>Close</dt>
-              <dd className="text-right text-foreground">{formatPrice(hovered.close)}</dd>
-              <dt>Vol</dt>
-              <dd className="text-right text-foreground">{compactVolume(hovered.volume)}</dd>
-            </dl>
-            <div className="mt-1 pt-1 border-t border-border grid grid-cols-2 gap-x-2 gap-y-0.5 text-muted-foreground">
+            {/* auto columns spread by justify-between, not two equal
+                fractions: the panel is only as wide as its widest line, and
+                equal halves are narrower than "421.82" — the label and the
+                value end up touching. */}
+            <dl className="grid grid-cols-[auto_auto] justify-between gap-x-4 gap-y-0.5 text-muted-foreground">
               <dt>55d high</dt>
               <dd className="text-right text-foreground">{formatPrice(hovered.high55)}</dd>
               <dt>20d low</dt>
               <dd className="text-right text-foreground">{formatPrice(hovered.low20)}</dd>
-            </div>
-            {atrsToExit != null && (
-              <p className="mt-1 text-muted-foreground">
-                {atrsToExit >= 0 ? formatPrice(atrsToExit) : formatPrice(-atrsToExit)}{' '}
-                {atrsToExit >= 0 ? 'above' : 'below'} the exit level
-              </p>
-            )}
-            {(hovered.entry || hovered.exit) && (
-              <p
-                className={
-                  hovered.exit ? 'mt-1 text-destructive font-medium' : 'mt-1 font-medium'
-                }
-                style={hovered.entry && !hovered.exit ? { color: 'var(--chart-2)' } : undefined}
-              >
-                {hovered.exit ? 'Exit signal' : 'Entry signal'}
-              </p>
-            )}
+            </dl>
           </div>
         )}
       </div>
