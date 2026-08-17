@@ -1,7 +1,7 @@
 import { AlertTriangle, FlaskConical } from 'lucide-react'
 import type { Backtest, BacktestRun, BacktestSummary } from '../lib/api'
 import { EquityChart } from './EquityChart'
-import { Badge, Card, CardHeader, EmptyState, Skeleton, cn } from './ui'
+import { Badge, Card, CardHeader, EmptyState, Skeleton, StatTile, cn } from './ui'
 
 function num(summary: BacktestSummary | null | undefined, key: string): number | null {
   const value = summary?.[key]
@@ -27,28 +27,6 @@ function verdictClass(strategy: number | null, benchmark: number | null, higherI
   if (strategy === null || benchmark === null) return ''
   const better = higherIsBetter ? strategy > benchmark : strategy < benchmark
   return better ? 'text-positive' : 'text-destructive'
-}
-
-function StatTile({
-  label,
-  value,
-  sub,
-  tone,
-  title,
-}: {
-  label: string
-  value: string
-  sub?: string
-  tone?: string
-  title?: string
-}) {
-  return (
-    <div className="min-w-0" title={title}>
-      <p className="text-[11px] text-muted-foreground mb-0.5">{label}</p>
-      <p className={cn('text-xl font-semibold tracking-tight tnum', tone)}>{value}</p>
-      {sub && <p className="text-[11px] text-muted-foreground mt-0.5 tnum">{sub}</p>}
-    </div>
-  )
 }
 
 function ComparisonTable({ run }: { run: BacktestRun }) {

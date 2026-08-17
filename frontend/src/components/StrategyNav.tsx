@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { ROUTE_LABELS, type Route } from '../hooks/useHashRoute'
+import { ROUTE_LABELS, type Page } from '../hooks/useHashRoute'
 import { Button, cn } from './ui'
 
 /**
@@ -16,14 +16,14 @@ import { Button, cn } from './ui'
  * a tab bar. The arrows stop scaling the moment "right" is ambiguous.
  */
 
-const ORDER: Route[] = ['donchian', 'rsi']
+const ORDER: Page[] = ['donchian', 'rsi']
 
 export function StrategyNav({
   route,
   onNavigate,
 }: {
-  route: Route
-  onNavigate: (route: Route) => void
+  route: Page
+  onNavigate: (route: Page) => void
 }) {
   const index = ORDER.indexOf(route)
   const previous = index > 0 ? ORDER[index - 1] : null

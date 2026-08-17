@@ -125,3 +125,28 @@ export function EmptyState({ icon, title, hint }: { icon?: ReactNode; title: str
 export function Skeleton({ className }: { className?: string }) {
   return <div className={cn('animate-pulse rounded-md bg-muted', className)} />
 }
+
+/** One headline number with its label, and optionally a smaller line of
+ *  context beneath. Shared by the backtest summary and the ticker detail
+ *  page so a figure looks the same wherever it's shown. */
+export function StatTile({
+  label,
+  value,
+  sub,
+  tone,
+  title,
+}: {
+  label: string
+  value: string
+  sub?: ReactNode
+  tone?: string
+  title?: string
+}) {
+  return (
+    <div className="min-w-0" title={title}>
+      <p className="text-[11px] text-muted-foreground mb-0.5">{label}</p>
+      <p className={cn('text-xl font-semibold tracking-tight tnum', tone)}>{value}</p>
+      {sub && <p className="text-[11px] text-muted-foreground mt-0.5 tnum">{sub}</p>}
+    </div>
+  )
+}

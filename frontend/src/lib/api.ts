@@ -163,6 +163,77 @@ export interface Backtest {
   caveats: string[]
 }
 
+export type ChartRange = '6M' | '1Y' | '2Y' | '5Y' | 'MAX'
+
+export const CHART_RANGES: ChartRange[] = ['6M', '1Y', '2Y', '5Y', 'MAX']
+
+/**
+ * Daily bars for the detail chart, columnar rather than a list of bars.
+ *
+ * Ten years is ~2,500 rows, and repeating eight key names on each one
+ * costs more than the numbers do. The chart walks indices to build its SVG
+ * paths, so this is also the shape it wants — a list of objects would only
+ * be transposed back here.
+ *
+ * Every array has the same length as `dates` and is aligned to it. Nulls
+ * are real gaps (the 55-bar Donchian warm-up, most of all) and must break
+ * the line rather than being read as zero.
+ */
+export interface TickerBars {
+  dates: string[]
+  open: (number | null)[]
+  high: (number | null)[]
+  low: (number | null)[]
+  close: (number | null)[]
+  volume: (number | null)[]
+  donchian_high: (number | null)[]
+  donchian_low: (number | null)[]
+  /** Indices into `dates`, not parallel booleans — signals are sparse. */
+  entry_index: number[]
+  exit_index: number[]
+}
+
+export interface TickerStats {
+  ticker: string
+  long_name: string | null
+  asset_class: string | null
+  as_of_date: string | null
+  close: number | null
+  prev_close: number | null
+  donchian_high: number | null
+  donchian_low: number | null
+  atr: number | null
+  stop_distance: number | null
+  entry_signal: boolean
+  exit_signal: boolean
+  /** (close - donchian_low) / atr — cushion before the exit fires, scaled
+   *  by the ticker's own volatility so it compares across tickers. */
+  atrs_to_exit: number | null
+  breakout_strength: number | null
+  suggested_shares: number | null
+  /** "pipeline" = the stored end-of-day row, the same figures the dashboard
+   *  card shows. "computed" = derived on the fly for a ticker the pipeline
+   *  has never scanned. */
+  signal_source: string
+}
+
+export interface TickerDetail {
+  ticker: string
+  range: string
+  bars: TickerBars
+  stats: TickerStats
+  quote: Quote | null
+  held: boolean
+  shares: number | null
+  market_value: number | null
+  /** Yahoo's daily history includes the session in progress; that candle is
+   *  drawn dimmed and never carries a signal marker. */
+  partial_last_bar: boolean
+  /** False when Yahoo returned nothing but the ticker is known here — the
+   *  stats still render, the chart is what's missing. */
+  history_available: boolean
+}
+
 export interface AccountPatch {
   cash_balance?: number
   risk_fraction?: number
@@ -228,6 +299,11 @@ export const api = {
   entryCandidates: (limit = 10) => request<EntryCandidate[]>(`/entry-candidates?limit=${limit}`),
   account: (live = false) => request<Account>(`/account?live=${live}`),
   backtest: () => request<Backtest>('/backtest'),
+
+  // encodeURIComponent is what carries GC=F through the path — the '=' would
+  // otherwise be ambiguous. Same reason as updateShares/removeHolding below.
+  tickerDetail: (ticker: string, range: ChartRange = '1Y') =>
+    request<TickerDetail>(`/ticker/${encodeURIComponent(ticker)}?range=${range}`),
 
   // The RSI(2) pullback page. Separate endpoints rather than a `?strategy=`
   // parameter on the existing ones: the response shapes genuinely differ,

@@ -142,11 +142,13 @@ backend without `DEMO_MODE`.
 cd backend && pip3 install -r requirements-dev.txt && python3 -m pytest tests/ -q
 ```
 
-107 tests covering the signal math (including that the Donchian windows are
+160 tests covering the signal math (including that the Donchian windows are
 shifted so today's high can't be part of the level it must break), the
 equity resolution tiers, per-ounce holdings, the backtest engine
-(look-ahead detection, capital rationing, off-by-one), and the API — auth
-postures and validation included. No network access required.
+(look-ahead detection, capital rationing, off-by-one), the chart's price
+history (bands computed before the range is sliced, no partial bar ever
+carrying a signal), and the API — auth postures and validation included.
+No network access required.
 
 ## Disclaimer
 

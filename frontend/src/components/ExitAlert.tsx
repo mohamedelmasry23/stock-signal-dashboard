@@ -1,5 +1,7 @@
+import { Fragment } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { Holding } from '../lib/api'
+import { TickerLink } from './TickerLink'
 
 /**
  * The one thing worth interrupting the layout for: a position you hold has
@@ -7,7 +9,13 @@ import type { Holding } from '../lib/api'
  * without scrolling, and omitted entirely when there's nothing to say —
  * a permanent "0 exit signals" banner would train you to ignore it.
  */
-export function ExitAlert({ holdings }: { holdings: Holding[] }) {
+export function ExitAlert({
+  holdings,
+  onSelectTicker,
+}: {
+  holdings: Holding[]
+  onSelectTicker?: (ticker: string) => void
+}) {
   const flagged = holdings.filter((h) => h.signal?.exit_signal).map((h) => h.ticker)
   if (flagged.length === 0) return null
 
@@ -22,7 +30,16 @@ export function ExitAlert({ holdings }: { holdings: Holding[] }) {
           {flagged.length} exit {flagged.length === 1 ? 'signal' : 'signals'} on your holdings
         </p>
         <p className="text-muted-foreground text-xs mt-0.5">
-          <span className="font-mono">{flagged.join(', ')}</span>{' '}
+          {/* Mapped rather than joined, so each symbol is its own link to
+              its chart. The separators stay plain text between them. */}
+          <span className="font-mono">
+            {flagged.map((ticker, i) => (
+              <Fragment key={ticker}>
+                {i > 0 && ', '}
+                <TickerLink ticker={ticker} onSelect={onSelectTicker} />
+              </Fragment>
+            ))}
+          </span>{' '}
           closed below the 20-day Donchian low as of the last pipeline run.
         </p>
       </div>

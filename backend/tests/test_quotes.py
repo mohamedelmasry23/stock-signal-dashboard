@@ -176,3 +176,27 @@ def test_dashboard_still_works_when_yahoo_fails(client, db, monkeypatch):
     row = response.json()[0]
     assert row["quote"] is None
     assert row["market_value"] == pytest.approx(1000.0)  # fell back to stored
+
+
+def test_the_long_name_rides_along_on_the_payload_already_fetched(monkeypatch):
+    """The detail page's heading needs the ticker's name, and `info` — which
+    this module already fetches for the price — carries it. Asking Yahoo
+    separately would roughly double that page's latency for a cosmetic
+    field, so if a second round trip ever appears, it isn't paying for this.
+    """
+    calls = []
+
+    def one_info(ticker):
+        calls.append(ticker)
+        return quotes.Quote(
+            ticker=ticker, price=100.0, change_percent=1.0,
+            previous_close=99.0, market_state="REGULAR",
+            long_name="SPDR Gold Shares",
+        )
+
+    monkeypatch.setattr(quotes, "_fetch_one", one_info)
+
+    quote = quotes.fetch_quotes(["GLD"])["GLD"]
+
+    assert quote.long_name == "SPDR Gold Shares"
+    assert calls == ["GLD"]

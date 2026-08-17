@@ -1,6 +1,7 @@
 import { Plus, TrendingUp } from 'lucide-react'
 import type { EntryCandidate } from '../lib/api'
 import { formatPrice, formatShares } from '../lib/format'
+import { TickerLink } from './TickerLink'
 import { Button, Card, CardHeader, EmptyState, Skeleton } from './ui'
 
 function StrengthBar({ strength, max }: { strength: number; max: number }) {
@@ -22,11 +23,13 @@ function CandidateRow({
   candidate,
   max,
   onAdd,
+  onSelectTicker,
   busy,
 }: {
   candidate: EntryCandidate
   max: number
   onAdd: (ticker: string) => void
+  onSelectTicker?: (ticker: string) => void
   busy: boolean
 }) {
   const strength = candidate.breakout_strength ?? 0
@@ -35,7 +38,11 @@ function CandidateRow({
     <div className="px-5 py-3 border-b border-border last:border-b-0">
       <div className="flex items-center justify-between gap-3 mb-2">
         <div className="flex items-baseline gap-2.5 min-w-0">
-          <span className="font-mono text-sm font-semibold tracking-tight">{candidate.ticker}</span>
+          <TickerLink
+            ticker={candidate.ticker}
+            onSelect={onSelectTicker}
+            className="font-mono text-sm font-semibold tracking-tight"
+          />
           <span className="text-xs text-muted-foreground tnum">
             {formatPrice(candidate.close)}
           </span>
@@ -82,11 +89,13 @@ export function EntryCandidates({
   candidates,
   loading,
   onAdd,
+  onSelectTicker,
   busyTicker,
 }: {
   candidates: EntryCandidate[]
   loading: boolean
   onAdd: (ticker: string) => void
+  onSelectTicker?: (ticker: string) => void
   busyTicker: string | null
 }) {
   const max = candidates.reduce((m, c) => Math.max(m, c.breakout_strength ?? 0), 0)
@@ -127,6 +136,7 @@ export function EntryCandidates({
               candidate={c}
               max={max}
               onAdd={onAdd}
+              onSelectTicker={onSelectTicker}
               busy={busyTicker === c.ticker}
             />
           ))}

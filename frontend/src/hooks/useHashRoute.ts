@@ -1,34 +1,76 @@
 import { useCallback, useEffect, useState } from 'react'
 
 /**
- * Which strategy page is showing.
+ * Where in the app we are: which strategy page, and whether a ticker's
+ * detail view is open over it.
  *
- * A hash router in a dozen lines rather than a routing dependency: there
- * are two pages, no nested routes, no loaders and no params. The hash also
- * means a built bundle needs no server rewrite rule to survive a refresh
- * on `/rsi` — which matters, because the deploy story here is still a
- * static bundle plus the API and `vite.config.ts`'s proxy is dev-only.
+ * A hash router in a few dozen lines rather than a routing dependency:
+ * there are two pages and one parameter, no nested routes and no loaders.
+ * The hash also means a built bundle needs no server rewrite rule to
+ * survive a refresh on `/rsi` or `/ticker/GLD` — which matters, because the
+ * deploy story here is still a static bundle plus the API and
+ * `vite.config.ts`'s proxy is dev-only.
  *
  * Back/forward work for free: changing `location.hash` pushes a history
  * entry, and `hashchange` fires when the user navigates through it.
  */
 
-export type Route = 'donchian' | 'rsi'
+export type Page = 'donchian' | 'rsi'
 
-export const ROUTE_LABELS: Record<Route, string> = {
+export interface Route {
+  page: Page
+  /**
+   * Non-null puts the ticker detail view over the page.
+   *
+   * Donchian only, and that's enforced by `parse` rather than by
+   * convention: the bands on that chart are the 55/20-day Donchian levels,
+   * so an RSI detail page has to be its own route with its own indicators,
+   * never a fallthrough that would show one strategy's levels under the
+   * other's heading.
+   */
+  ticker: string | null
+}
+
+export const ROUTE_LABELS: Record<Page, string> = {
   donchian: 'Donchian Breakout',
   rsi: 'RSI(2) Pullback',
 }
 
 function parse(hash: string): Route {
-  return hash.replace(/^#\/?/, '') === 'rsi' ? 'rsi' : 'donchian'
+  const path = hash.replace(/^#\/?/, '')
+  const [head, ...rest] = path.split('/')
+
+  if (head === 'ticker' && rest.length > 0 && rest[0]) {
+    let ticker: string
+    try {
+      // A hand-typed or truncated hash can hold a malformed escape (`#/ticker/%`),
+      // and decodeURIComponent throws URIError on it. This runs inside
+      // useState's initializer, so an uncaught throw white-screens the app
+      // before anything has rendered.
+      ticker = decodeURIComponent(rest.join('/'))
+    } catch {
+      return { page: 'donchian', ticker: null }
+    }
+    return { page: 'donchian', ticker: ticker.toUpperCase() }
+  }
+
+  return { page: head === 'rsi' ? 'rsi' : 'donchian', ticker: null }
 }
 
 export function useHashRoute(): [Route, (route: Route) => void] {
   const [route, setRoute] = useState<Route>(() => parse(window.location.hash))
 
   useEffect(() => {
-    const onChange = () => setRoute(parse(window.location.hash))
+    const onChange = () =>
+      setRoute((prev) => {
+        const next = parse(window.location.hash)
+        // parse() builds a fresh object every time, so returning it
+        // unconditionally would change identity on every hashchange. App
+        // keys its data-loading callback on `route.page`, and a new object
+        // each time would defeat that and refetch the dashboard on every
+        // navigation.
+        return prev.page === next.page && prev.ticker === next.ticker ? prev : next
+      })
     window.addEventListener('hashchange', onChange)
     return () => window.removeEventListener('hashchange', onChange)
   }, [])
@@ -37,9 +79,18 @@ export function useHashRoute(): [Route, (route: Route) => void] {
     // Setting the hash fires `hashchange`, which sets the state — so this
     // deliberately doesn't also call setRoute. Doing both would render
     // once from the click and once from the event.
-    window.location.hash = next === 'donchian' ? '/' : `/${next}`
+    window.location.hash = next.ticker
+      ? `/ticker/${encodeURIComponent(next.ticker)}`
+      : next.page === 'donchian'
+        ? '/'
+        : `/${next.page}`
     // Landing halfway down the new page because the old one was scrolled
     // is disorienting when the two layouts look this similar.
+    //
+    // This belongs here and not in an effect keyed on the route: going
+    // *back* never calls navigate(), it only fires `hashchange`, so the
+    // browser's own scroll restoration returns the dashboard to where it
+    // was left. An effect would fire on back too and destroy that.
     window.scrollTo({ top: 0 })
   }, [])
 

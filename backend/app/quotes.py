@@ -58,6 +58,12 @@ class Quote:
     # REGULAR | CLOSED | PRE | POST | POSTPOST — lets the UI say whether
     # the figure is live or simply the last session's final move.
     market_state: Optional[str]
+    # The ticker's own name, for the detail page heading. It rides along on
+    # the `info` payload already being fetched here, so it costs nothing;
+    # asking Yahoo separately would roughly double that page's latency for
+    # a cosmetic field. Last and defaulted so existing keyword construction
+    # of Quote — including in the tests — keeps working.
+    long_name: Optional[str] = None
 
 
 def _fetch_one(ticker: str) -> Optional[Quote]:
@@ -82,6 +88,7 @@ def _fetch_one(ticker: str) -> Optional[Quote]:
         change_percent=num("regularMarketChangePercent"),
         previous_close=num("regularMarketPreviousClose"),
         market_state=info.get("marketState") if isinstance(info.get("marketState"), str) else None,
+        long_name=info.get("longName") if isinstance(info.get("longName"), str) else None,
     )
 
 

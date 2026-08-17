@@ -5,6 +5,7 @@ import { formatMoney } from '../lib/format'
 import { dayChangePct, isLive } from '../lib/holdings'
 import { AddHoldingForm } from './AddHoldingForm'
 import { DayChange } from './DayChange'
+import { TickerLink } from './TickerLink'
 import { Badge, Button, Card, CardHeader, EmptyState, Input, Skeleton, cn } from './ui'
 
 /**
@@ -23,11 +24,13 @@ function HoldingRow({
   holding,
   onRemove,
   onUpdateShares,
+  onSelectTicker,
   busy,
 }: {
   holding: Holding
   onRemove: (ticker: string) => void
   onUpdateShares: (ticker: string, shares: number | null) => void
+  onSelectTicker?: (ticker: string) => void
   busy: boolean
 }) {
   const [sharesDraft, setSharesDraft] = useState(holding.shares?.toString() ?? '')
@@ -64,7 +67,11 @@ function HoldingRow({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-sm font-semibold tracking-tight">{holding.ticker}</span>
+          <TickerLink
+            ticker={holding.ticker}
+            onSelect={onSelectTicker}
+            className="font-mono text-sm font-semibold tracking-tight"
+          />
           {isExit && (
             <Badge tone="destructive" title="Close is below the 20-day Donchian low">
               <AlertTriangle size={10} />
@@ -146,6 +153,7 @@ export function HoldingsPanel({
   onAdd,
   onRemove,
   onUpdateShares,
+  onSelectTicker,
   addError,
 }: {
   holdings: Holding[]
@@ -154,6 +162,7 @@ export function HoldingsPanel({
   onAdd: (ticker: string, shares: number | null) => Promise<void>
   onRemove: (ticker: string) => void
   onUpdateShares: (ticker: string, shares: number | null) => void
+  onSelectTicker?: (ticker: string) => void
   addError: string | null
 }) {
   // Exit-flagged holdings first — that's the whole point of the dashboard.
@@ -222,6 +231,7 @@ export function HoldingsPanel({
               holding={h}
               onRemove={onRemove}
               onUpdateShares={onUpdateShares}
+              onSelectTicker={onSelectTicker}
               busy={busyTicker === h.ticker}
             />
           ))}

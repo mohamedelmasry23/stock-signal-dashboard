@@ -110,6 +110,96 @@ class EntryCandidateOut(BaseModel):
     as_of_date: Optional[date] = None
 
 
+class TickerBarsOut(BaseModel):
+    """Daily bars for the detail chart, stored columnar rather than as a
+    list of bar objects.
+
+    Ten years is roughly 2,500 bars, and repeating eight key names on every
+    one of them costs more than the numbers themselves — around 400 KB
+    against 175 KB. The chart also builds its SVG paths by walking indices,
+    so this is the shape it actually consumes; a list of objects would only
+    be transposed back in the browser.
+
+    Every numeric column is null, never zero, wherever the value is
+    undefined — through the 55-bar Donchian warm-up, most obviously. The
+    path builder lifts the pen on null (see toPath in EquityChart.tsx), so
+    a gap breaks the line rather than diving to the axis.
+    """
+
+    dates: List[date]
+    open: List[Optional[float]]
+    high: List[Optional[float]]
+    low: List[Optional[float]]
+    close: List[Optional[float]]
+    volume: List[Optional[float]]
+    donchian_high: List[Optional[float]]  # 55-day breakout level
+    donchian_low: List[Optional[float]]   # 20-day exit level
+    # Indices into `dates` of the bars where a signal *fired* — the crossing,
+    # not every subsequent bar the condition stayed true. Price that breaks
+    # its 55-day high tends to stay above it, so the state would put a marker
+    # on most bars of a trend and answer "is it above the level" instead of
+    # "where would you have bought".
+    #
+    # Indices rather than parallel booleans because these are sparse: a
+    # decade holds a few dozen, so booleans would be 5,000 mostly-false
+    # values to carry them.
+    entry_index: List[int]
+    exit_index: List[int]
+
+
+class TickerStatsOut(BaseModel):
+    """The headline numbers for a ticker, in the units the strategy uses.
+
+    `signal_source` says where the levels came from: "pipeline" means the
+    stored end-of-day row, the same figures the dashboard card shows;
+    "computed" means this ticker isn't in the scan universe and the levels
+    were derived here from its last completed bar. The distinction matters
+    because only the first has been through a full daily run.
+    """
+
+    ticker: str
+    long_name: Optional[str] = None
+    asset_class: Optional[str] = None  # etf | commodity | equity, when known
+    as_of_date: Optional[date] = None
+    close: Optional[float] = None
+    prev_close: Optional[float] = None
+    donchian_high: Optional[float] = None
+    donchian_low: Optional[float] = None
+    atr: Optional[float] = None
+    stop_distance: Optional[float] = None
+    entry_signal: bool = False
+    exit_signal: bool = False
+    # (close - donchian_low) / atr — how much cushion is left before the
+    # exit fires, in the same units the stop is sized in. Comparable across
+    # tickers in a way a percentage isn't, because it's scaled by each
+    # ticker's own volatility.
+    atrs_to_exit: Optional[float] = None
+    breakout_strength: Optional[float] = None  # (close - donchian_high) / atr
+    suggested_shares: Optional[float] = None
+    signal_source: str
+
+
+class TickerDetailOut(BaseModel):
+    """Everything the ticker detail page renders, in one round trip."""
+
+    ticker: str
+    range: str
+    bars: TickerBarsOut
+    stats: TickerStatsOut
+    quote: Optional[QuoteOut] = None
+    held: bool = False
+    shares: Optional[float] = None
+    market_value: Optional[float] = None
+    # Yahoo's daily history includes the session in progress. The frontend
+    # dims that candle and labels it, because it is not a bar yet.
+    partial_last_bar: bool = False
+    # False when Yahoo returned nothing but the ticker is known here. The
+    # page still renders its stats from the stored row; a 404 would claim
+    # the ticker doesn't exist, which is a much stronger thing to say than
+    # "the price feed is down".
+    history_available: bool = True
+
+
 class RsiSignalOut(BaseModel):
     """The RSI(2) pullback equivalent of SignalOut. Same envelope, same
     meaning for `stop_distance`/`suggested_shares`; different indicators,

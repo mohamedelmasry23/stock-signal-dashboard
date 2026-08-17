@@ -1,13 +1,15 @@
 import json
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from datetime import date
+from typing import Annotated, List, Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+import pandas as pd
+from fastapi import Depends, FastAPI, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import models, schemas
+from . import history, models, schemas
 from .account import get_settings, positions_value, resolve_equity, suggested_shares
 from .quotes import get_quotes
 from .config import ALLOWED_ORIGINS, API_KEY, DEMO_MODE, READ_ONLY, is_point_in_time
@@ -113,6 +115,35 @@ def _live_prices(db: Session, live: bool) -> dict:
     except Exception as e:  # noqa: BLE001 - a quote is never load-bearing
         print(f"[api] WARNING: live quote fetch failed ({e}); using stored closes.")
         return {}
+
+
+def _quote_for(ticker: str, live: bool):
+    """One live quote, or None.
+
+    Same never-raise posture as `_live_prices`: Yahoo being down must cost
+    the page its headline price, not the page. `_live_prices` can't be
+    reused because it queries held tickers, and the detail page has to work
+    for a ticker you don't own.
+    """
+    if not live:
+        return None
+    try:
+        return get_quotes([ticker]).get(ticker)
+    except Exception as e:  # noqa: BLE001 - a quote is never load-bearing
+        print(f"[api] WARNING: quote fetch failed for {ticker} ({e}).")
+        return None
+
+
+def _col(series, digits: int = 4) -> List[Optional[float]]:
+    """A pandas column as JSON-safe numbers.
+
+    NaN is the trap here: `float('nan')` is not valid JSON and serializes
+    as a bare `NaN` token that `JSON.parse` rejects outright, taking the
+    whole page down rather than one value. Warm-up gaps must travel as
+    null. Rounding on the way out is free size — no chart needs the last
+    twelve digits of 123.45000000000002.
+    """
+    return [None if pd.isna(v) else round(float(v), digits) for v in series]
 
 
 @app.get("/api/health")
@@ -529,6 +560,203 @@ def get_rsi_backtest(db: Session = Depends(get_db)):
     strictly separate from it — neither strategy's runs can displace the
     other's."""
     return _backtest_out(db, "rsi")
+
+
+def _empty_bars() -> schemas.TickerBarsOut:
+    return schemas.TickerBarsOut(
+        dates=[], open=[], high=[], low=[], close=[], volume=[],
+        donchian_high=[], donchian_low=[], entry_index=[], exit_index=[],
+    )
+
+
+def _ratio(numerator, denominator) -> Optional[float]:
+    """Guarded division for the two ATR-relative figures. None rather than
+    zero when the inputs aren't there — a ticker with too little history
+    for an ATR has no distance-to-exit, and printing 0.0 would read as
+    'right at the trigger'."""
+    if numerator is None or denominator is None or denominator <= 0:
+        return None
+    return round(float(numerator) / float(denominator), 4)
+
+
+@app.get("/api/ticker/{ticker}", response_model=schemas.TickerDetailOut)
+def ticker_detail(
+    ticker: Annotated[str, Path(pattern=schemas.TICKER_PATTERN)],
+    range: Literal["6M", "1Y", "2Y", "5Y", "MAX"] = history.DEFAULT_RANGE,
+    live: bool = True,
+    db: Session = Depends(get_db),
+):
+    """Daily bars with the Donchian levels drawn alongside them, plus the
+    ticker's headline numbers — everything the detail page renders.
+
+    Deliberately `def` rather than `async def`. `yf.Ticker().history` blocks
+    for a second or more; under `async def` that would freeze the event loop
+    for every other request in flight. A sync handler runs in Starlette's
+    threadpool instead, which is what every other route here relies on too.
+
+    `live` defaults to true, inverting `/api/holdings`' default. That one
+    opts out so first paint never waits on Yahoo — but this endpoint is
+    already waiting on Yahoo for the bars, so opting out would only produce
+    a page missing its headline price and save nothing.
+
+    The signal block comes from the stored end-of-day row whenever there is
+    one. Yahoo's daily history includes the session in progress, and reading
+    levels off a partial bar would print an exit on an intraday dip that
+    recovers by the close — a different strategy from the one the backtest
+    measured. See app/quotes.py, which draws the same line.
+    """
+    ticker = ticker.upper()
+
+    hist = history.get_history(ticker)
+    sig = db.query(models.Signal).filter(models.Signal.ticker == ticker).first()
+    holding = db.query(models.Holding).filter(models.Holding.ticker == ticker).first()
+    universe = db.query(models.Universe).filter(models.Universe.ticker == ticker).first()
+
+    if hist is None and sig is None and holding is None and universe is None:
+        raise HTTPException(404, f"No price history for {ticker}.")
+
+    quote = _quote_for(ticker, live)
+    prices = {ticker: quote.price} if quote and quote.price is not None else {}
+    equity, _ = resolve_equity(db, prices)
+    risk = get_settings(db).risk_fraction
+
+    today = date.today()
+    bars = _empty_bars()
+    partial_last_bar = False
+    computed_row = None
+    computed_prev_close = None
+
+    if hist is not None and not hist.frame.empty:
+        full = hist.frame.copy()
+
+        # Mark the bar a signal *fires* on, not every bar it stays true.
+        # A Donchian entry is a crossing: once price is above the 55-day
+        # high it usually stays there for a while, and a trending ticker
+        # would otherwise carry a triangle on nearly every bar — which
+        # says "still above the level", not "here is where you'd have
+        # bought". Computed on the full frame so a run that began before
+        # the visible window doesn't get re-marked at its left edge.
+        for column, flag in (("EntrySignal", "_entry_at"), ("ExitSignal", "_exit_at")):
+            on = full[column].fillna(False).astype(bool)
+            full[flag] = on & ~on.shift(1, fill_value=False)
+
+        last_bar_date = full.index[-1].date()
+        partial_last_bar = last_bar_date >= today
+
+        # The last bar that is actually a bar. Markers and any computed
+        # levels come from here, never from a session still trading.
+        completed = full[full.index.date < today] if partial_last_bar else full
+        if not completed.empty:
+            computed_row = completed.iloc[-1]
+            if len(completed) >= 2:
+                previous = completed["Close"].iloc[-2]
+                computed_prev_close = None if pd.isna(previous) else round(float(previous), 4)
+        completed_through = completed.index[-1].date() if not completed.empty else None
+
+        window = history.slice_range(full, range)
+        dates = [ts.date() for ts in window.index]
+
+        def markers(column: str) -> List[int]:
+            flags = window[column].tolist()
+            return [
+                i
+                for i, on in enumerate(flags)
+                if on and completed_through is not None and dates[i] <= completed_through
+            ]
+
+        bars = schemas.TickerBarsOut(
+            dates=dates,
+            open=_col(window["Open"]),
+            high=_col(window["High"]),
+            low=_col(window["Low"]),
+            close=_col(window["Close"]),
+            volume=_col(window["Volume"], digits=0),
+            donchian_high=_col(window["DonchianHigh_N"]),
+            donchian_low=_col(window["DonchianLow_M"]),
+            entry_index=markers("_entry_at"),
+            exit_index=markers("_exit_at"),
+        )
+
+    if sig is not None:
+        # The stored row: the same figures the dashboard card shows, so the
+        # two views can never disagree about whether a position is flagged.
+        stats = schemas.TickerStatsOut(
+            ticker=ticker,
+            as_of_date=sig.as_of_date,
+            close=sig.close,
+            prev_close=sig.prev_close,
+            donchian_high=sig.donchian_high,
+            donchian_low=sig.donchian_low,
+            atr=sig.atr,
+            stop_distance=sig.stop_distance,
+            entry_signal=bool(sig.entry_signal),
+            exit_signal=bool(sig.exit_signal),
+            signal_source="pipeline",
+        )
+    elif computed_row is not None:
+        # A ticker outside the scan universe — typed into the URL, or held
+        # before the next daily run reaches it. Derived here so the page
+        # still says something, and labelled so it's clear it hasn't been
+        # through a pipeline run.
+        stats = schemas.TickerStatsOut(
+            ticker=ticker,
+            as_of_date=computed_row.name.date(),
+            close=None if pd.isna(computed_row["Close"]) else round(float(computed_row["Close"]), 4),
+            prev_close=computed_prev_close,
+            donchian_high=None if pd.isna(computed_row["DonchianHigh_N"]) else round(float(computed_row["DonchianHigh_N"]), 4),
+            donchian_low=None if pd.isna(computed_row["DonchianLow_M"]) else round(float(computed_row["DonchianLow_M"]), 4),
+            atr=None if pd.isna(computed_row["ATR"]) else round(float(computed_row["ATR"]), 4),
+            stop_distance=None if pd.isna(computed_row["StopDistance"]) else round(float(computed_row["StopDistance"]), 4),
+            entry_signal=bool(computed_row["EntrySignal"]),
+            exit_signal=bool(computed_row["ExitSignal"]),
+            signal_source="computed",
+        )
+    else:
+        stats = schemas.TickerStatsOut(ticker=ticker, signal_source="computed")
+
+    stats.long_name = quote.long_name if quote else None
+    stats.asset_class = universe.asset_class if universe else None
+    stats.atrs_to_exit = _ratio(
+        (stats.close - stats.donchian_low)
+        if (stats.close is not None and stats.donchian_low is not None)
+        else None,
+        stats.atr,
+    )
+    stats.breakout_strength = _ratio(
+        (stats.close - stats.donchian_high)
+        if (stats.close is not None and stats.donchian_high is not None)
+        else None,
+        stats.atr,
+    )
+    # Resolved from live account equity, never read off the signal frame's
+    # own Shares column — that one is computed against a placeholder equity
+    # and doesn't compound. See app/account.py.
+    stats.suggested_shares = suggested_shares(stats.stop_distance, equity, risk)
+
+    price = quote.price if quote and quote.price is not None else stats.close
+    shares = holding.shares if holding else None
+
+    return schemas.TickerDetailOut(
+        ticker=ticker,
+        range=range,
+        bars=bars,
+        stats=stats,
+        quote=(
+            schemas.QuoteOut(
+                price=quote.price,
+                change_percent=quote.change_percent,
+                previous_close=quote.previous_close,
+                market_state=quote.market_state,
+            )
+            if quote
+            else None
+        ),
+        held=holding is not None,
+        shares=shares,
+        market_value=(shares * price) if (shares is not None and price is not None) else None,
+        partial_last_bar=partial_last_bar,
+        history_available=hist is not None and not hist.frame.empty,
+    )
 
 
 @app.get("/api/status", response_model=schemas.StatusOut)
