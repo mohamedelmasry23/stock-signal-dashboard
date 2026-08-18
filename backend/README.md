@@ -286,8 +286,9 @@ It runs `scripts/daily_pipeline.sh`, which writes **one line per run**
 saying whether that run was healthy:
 
 ```
-2026-08-13 19:42:55 EEST  ok      517 updated, 0 failed, 505 equities
+2026-08-14 23:30:48 EEST  ok      donchian 547 updated, 0 failed; rsi 35 updated, 0 failed; 505 equities
 2026-08-13 19:39:51 EEST  WARNING 267 tickers failed — unusually high
+2026-08-18 11:02:13 EEST  ok      donchian 547 updated, 0 failed; rsi 35 updated, 0 failed; 505 equities; mid-session run, partial bar skipped
 ```
 
 The wrapper exists because the pipeline is deliberately forgiving — a

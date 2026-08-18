@@ -52,6 +52,13 @@ don_failed=$(printf '%s' "$done_line" | sed -n 's/.*Donchian: [0-9]* updated, \(
 rsi_updated=$(printf '%s' "$done_line" | sed -n 's/.*RSI(2): \([0-9]*\) updated.*/\1/p')
 rsi_failed=$(printf '%s' "$done_line" | sed -n 's/.*RSI(2): [0-9]* updated, \([0-9]*\) failed.*/\1/p')
 
+# Set when the pipeline dropped today's unfinished bar, i.e. this ran
+# mid-session. Matched on its own line rather than by reworking the patterns
+# above — the run is healthy, but its signal dates deliberately did not
+# advance, and without this the only symptom is an as_of_date that stood
+# still, which appears nowhere in this log.
+partial=$(grep -m1 "in-progress bar" "$RAW" || true)
+
 if [ "$status" -ne 0 ]; then
     verdict="ERROR   pipeline exited $status"
 elif [ -z "$done_line" ]; then
@@ -78,7 +85,7 @@ elif [ "${rsi_updated:-0}" -eq 0 ]; then
     # the way a quiet day with no signals is.
     verdict="WARNING RSI(2) updated nothing — its universe or fetch failed"
 else
-    verdict="ok      donchian ${don_updated} updated, ${don_failed:-0} failed; rsi ${rsi_updated} updated, ${rsi_failed:-0} failed; ${equities} equities"
+    verdict="ok      donchian ${don_updated} updated, ${don_failed:-0} failed; rsi ${rsi_updated} updated, ${rsi_failed:-0} failed; ${equities} equities${partial:+; mid-session run, partial bar skipped}"
 fi
 
 printf '%s  %s\n' "$started" "$verdict" >> "$LOG"

@@ -12,6 +12,12 @@ finalized and tomorrow's trigger levels are locked in (see the
 "Signal timing model" note in the original brief). See README.md for
 cron / Task Scheduler setup.
 
+That schedule is no longer the only defence. drop_in_progress_bar() below
+removes today's bar when the session is still running, so the run is safe
+at any hour — it just writes the last completed session's signals instead.
+The schedule still matters for freshness; it no longer matters for
+correctness.
+
     python -m app.pipeline
 
 Refuses to run with DEMO_MODE=true — this pipeline pulls real market
@@ -22,7 +28,10 @@ demo database. Use app.seed_demo for fake data instead.
 import io
 import sys
 import time
+from datetime import datetime
+from datetime import time as time_of_day
 from typing import Callable, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -245,6 +254,69 @@ def fetch_ohlc_batch(tickers: List[str], period: str = PERIOD) -> Dict[str, pd.D
     return result
 
 
+# Signals are computed from *completed* daily bars. Yahoo's daily history
+# includes the session in progress, where "Close" is simply the current
+# price and High/Low are only the range so far — so a run during market
+# hours would write a partial bar as the day's signal, and an exit could
+# fire on an intraday dip that recovers by the close.
+#
+# ZoneInfo rather than a fixed offset: this machine runs on Athens time,
+# seven hours ahead of New York for most of the year and six during the
+# windows where the EU and US daylight-saving changeovers don't line up,
+# and EDT/EST moves under the market independently. A naive local clock is
+# wrong by six or seven hours; a hardcoded offset is wrong for weeks a year.
+NEW_YORK = ZoneInfo("America/New_York")
+
+# The equity session ends at 16:00 ET; the extra five minutes are settle
+# time. The closing auction prints at 16:00 and Yahoo does not carry the
+# final number instantly — a run at 16:00:30 can still read a provisional
+# close. The scheduled run has at least 25 minutes of margin past this, so
+# the buffer costs nothing where it matters.
+SESSION_COMPLETE_ET = time_of_day(16, 5)
+
+
+def market_now_et() -> datetime:
+    """Now, in New York. Its own function so a test can replace it."""
+    return datetime.now(NEW_YORK)
+
+
+def drop_in_progress_bar(
+    frame: pd.DataFrame, now_et: Optional[datetime] = None
+) -> pd.DataFrame:
+    """Drop the final row when it is today's still-forming session.
+
+    This is what makes the pipeline safe to run at any hour. It used to rely
+    entirely on being scheduled after the close, which is not a guarantee:
+    launchd reruns a missed calendar job when the machine next *wakes*, and
+    a laptop that was shut at 23:30 can therefore fire the job mid-session.
+
+    Weekends and holidays need no special handling — Yahoo emits no bar
+    dated today on those, so nothing matches.
+
+    Never raises. `previous_close()` is called outside the per-ticker `try`
+    in run_pipeline, so anything that throws on this path would abort the
+    whole run rather than skip one ticker.
+    """
+    if frame is None or frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
+        return frame
+
+    now = now_et or market_now_et()
+    if now.tzinfo is not None:
+        now = now.astimezone(NEW_YORK)
+
+    # The index label is read as-is and never converted. A daily bar's label
+    # *is* its session date; GC=F comes back tz-aware where equities don't,
+    # and converting a UTC-midnight label into New York would shift it back
+    # a day and defeat the comparison entirely.
+    last_date = frame.index[-1].date()
+    today = now.date()
+
+    unfinished = last_date > today or (
+        last_date == today and now.time() < SESSION_COMPLETE_ET
+    )
+    return frame.iloc[:-1] if unfinished else frame
+
+
 def previous_close(frame: pd.DataFrame) -> Optional[float]:
     """Second-to-last close, for showing the day's move. None when there's
     only one bar — a listing with no prior session genuinely has no
@@ -372,6 +444,12 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
 
         computed, failed = 0, 0
         rsi_computed, rsi_failed = 0, 0
+        in_progress = 0
+
+        # Read once, not per ticker. A full run takes minutes, so a run that
+        # straddled the cutoff would otherwise trim some tickers and not
+        # others, leaving the signals table with two different as_of_dates.
+        now_et = market_now_et()
         for i in range(0, len(all_tickers), CHUNK_SIZE):
             chunk = all_tickers[i:i + CHUNK_SIZE]
             print(f"[pipeline] Fetching {i + 1}-{i + len(chunk)} of {len(all_tickers)}...")
@@ -385,6 +463,18 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
 
             for ticker in chunk:
                 df = data.get(ticker)
+                # Before anything reads the frame: today's unfinished bar is
+                # not a bar. Trimming here rather than after the strategy
+                # matters — ATR averages true range including the partial
+                # high/low, so dropping the row later would leave a
+                # contaminated ATR on the row that survives.
+                if df is not None:
+                    trimmed = drop_in_progress_bar(df, now_et)
+                    if len(trimmed) != len(df):
+                        in_progress += 1
+                    df = trimmed
+                # A listing whose only bar is today trims to nothing, and is
+                # counted here rather than raising on .iloc[-1] below.
                 if df is None or df.empty:
                     failed += 1
                     continue
@@ -460,6 +550,15 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
             f"risking {settings.risk_fraction:.1%} = ${settings.risk_fraction * equity:,.0f} "
             f"per position; restated sizing on {restated} tickers."
         )
+        # Its own line, deliberately: the wrapper's verdict regexes anchor on
+        # "Done." and "in scan universe", and reworking that wording is what
+        # silently blanked the update count once already. This adds a line
+        # rather than changing one.
+        if in_progress:
+            print(
+                f"[pipeline] Skipped today's in-progress bar on {in_progress} ticker(s); "
+                f"signals are as of the last completed session."
+            )
         print(
             f"[pipeline] Done. Donchian: {computed} updated, {failed} skipped/failed. "
             f"RSI(2): {rsi_computed} updated, {rsi_failed} failed."
