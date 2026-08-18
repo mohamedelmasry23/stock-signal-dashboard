@@ -77,18 +77,31 @@ function ComparisonTable({ run }: { run: BacktestRun }) {
   )
 }
 
-function VariantComparison({ faithful, stopped }: { faithful: BacktestRun; stopped: BacktestRun }) {
-  const rows: [string, string, string, string][] = [
-    ['Total return', pct(num(faithful.summary, 'total_return')), pct(num(stopped.summary, 'total_return')), 'pct'],
-    ['Max drawdown', pct(num(faithful.summary, 'max_drawdown')), pct(num(stopped.summary, 'max_drawdown')), 'pct'],
-    ['Sharpe', fixed(num(faithful.summary, 'sharpe')), fixed(num(stopped.summary, 'sharpe')), 'num'],
-    [
-      'Losses worse than 1R',
-      pct(num(faithful.summary, 'pct_losses_worse_than_1r')),
-      pct(num(stopped.summary, 'pct_losses_worse_than_1r')),
-      'pct',
-    ],
-    ['Trades', String(num(faithful.summary, 'n_trades') ?? '—'), String(num(stopped.summary, 'n_trades') ?? '—'), 'int'],
+/** One column of the variant table: the same strategy under a different
+ *  rule, labelled by what that rule is. */
+interface Variant {
+  label: string
+  run: BacktestRun
+}
+
+/**
+ * The same metrics for each variant, side by side.
+ *
+ * Takes a list rather than two named props so that a third rule — a
+ * different exit, a different fill — is a data change here rather than
+ * another rewrite of this table. Note it does NOT generalise the heading
+ * above the call site, which is a two-variant sentence; adding a variant
+ * still has to say what the comparison is now about.
+ */
+function VariantComparison({ variants }: { variants: Variant[] }) {
+  // Each row reads its own cell out of a run, so adding a column can't
+  // leave a row half-filled the way parallel value arrays could.
+  const rows: [string, (run: BacktestRun) => string][] = [
+    ['Total return', (r) => pct(num(r.summary, 'total_return'))],
+    ['Max drawdown', (r) => pct(num(r.summary, 'max_drawdown'))],
+    ['Sharpe', (r) => fixed(num(r.summary, 'sharpe'))],
+    ['Losses worse than 1R', (r) => pct(num(r.summary, 'pct_losses_worse_than_1r'))],
+    ['Trades', (r) => String(num(r.summary, 'n_trades') ?? '—')],
   ]
 
   return (
@@ -97,16 +110,22 @@ function VariantComparison({ faithful, stopped }: { faithful: BacktestRun; stopp
         <thead>
           <tr className="text-muted-foreground text-[11px]">
             <th className="text-left font-normal py-1.5">Metric</th>
-            <th className="text-right font-normal py-1.5">As built (no stop)</th>
-            <th className="text-right font-normal py-1.5">With 2×ATR stop</th>
+            {variants.map((v) => (
+              <th key={v.label} className="text-right font-normal py-1.5">
+                {v.label}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map(([label, a, b]) => (
+          {rows.map(([label, cell]) => (
             <tr key={label} className="border-t border-border">
               <td className="py-1.5 text-muted-foreground">{label}</td>
-              <td className="py-1.5 text-right font-medium">{a}</td>
-              <td className="py-1.5 text-right font-medium">{b}</td>
+              {variants.map((v) => (
+                <td key={v.label} className="py-1.5 text-right font-medium">
+                  {cell(v.run)}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
@@ -206,6 +225,15 @@ export function BacktestPanel({
   }
 
   const run = backtest?.faithful ?? backtest?.atr_stop ?? null
+
+  // Declared as a list so a third rule slots in here rather than in the
+  // table. `point_in_time` is deliberately NOT one of these: it differs in
+  // universe, not in rules, and is drawn as an overlay on the chart above.
+  const variants: Variant[] = [
+    { label: 'As built (no stop)', run: backtest?.faithful },
+    { label: 'With 2×ATR stop', run: backtest?.atr_stop },
+  ].filter((v): v is Variant => v.run != null)
+
   if (!run) {
     return (
       <Card className="mt-6">
@@ -313,10 +341,10 @@ export function BacktestPanel({
             <h3 className="text-xs font-semibold mb-1">vs buy &amp; hold</h3>
             <ComparisonTable run={run} />
           </div>
-          {backtest?.faithful && backtest?.atr_stop && (
+          {variants.length >= 2 && (
             <div>
               <h3 className="text-xs font-semibold mb-1">What the missing stop-loss costs</h3>
-              <VariantComparison faithful={backtest.faithful} stopped={backtest.atr_stop} />
+              <VariantComparison variants={variants} />
             </div>
           )}
         </div>
