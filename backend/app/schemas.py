@@ -110,6 +110,53 @@ class EntryCandidateOut(BaseModel):
     as_of_date: Optional[date] = None
 
 
+class WatchItemOut(BaseModel):
+    """One ticker trading above its 55-day high right now.
+
+    Deliberately missing `suggested_shares`, which every other candidate
+    model here carries. A position size asserts that something is
+    tradeable, and nothing on this endpoint has been measured — its
+    absence is the schema saying so.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    ticker: str
+    price: float
+    # Recomputed per scan, NOT signals.donchian_high, which is one bar
+    # stale for the session in progress. See app/watch.py.
+    level: float
+    atr: Optional[float] = None
+    atrs_above: Optional[float] = None  # (price - level) / atr — the ranking key
+    prev_close: Optional[float] = None
+    # Derived here from price/prev_close, unlike QuoteOut.change_percent,
+    # which is Yahoo's own already-scaled field. Same name, different
+    # provenance — read the Yahoo note in CLAUDE.md before touching either.
+    change_percent: Optional[float] = None
+    gap_open: bool = False
+    held: bool = False
+    already_flagged: bool = False  # the stored end-of-day signal is already true
+
+
+class WatchOut(BaseModel):
+    """The live watchlist, and everything needed to say how much to trust it.
+
+    An envelope rather than a bare list, because the freshness fields are
+    what make the list safe to render at all — a list alone could be shown
+    as live at any hour of any day.
+    """
+
+    items: List[WatchItemOut] = []
+    scanned_at: Optional[UtcDateTime] = None
+    session_date: Optional[date] = None
+    market_open: bool = False
+    stale: bool = True
+    universe_size: int = 0
+    fetched: int = 0
+    above_count: int = 0  # total above the level, before `limit` truncates
+    truncated: bool = False
+
+
 class TickerBarsOut(BaseModel):
     """Daily bars for the detail chart, stored columnar rather than as a
     list of bar objects.

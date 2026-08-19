@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import history, models, schemas
+from . import history, models, schemas, watch
 from .account import get_settings, positions_value, resolve_equity, suggested_shares
 from .quotes import get_quotes
 from .config import ALLOWED_ORIGINS, API_KEY, DEMO_MODE, READ_ONLY, is_point_in_time
@@ -283,6 +283,86 @@ def _rsi_signal_out(
     out = schemas.RsiSignalOut.model_validate(sig)
     out.suggested_shares = suggested_shares(sig.stop_distance, equity, risk_fraction)
     return out
+
+
+@app.get("/api/watch", response_model=schemas.WatchOut)
+def watchlist(limit: int = 20, db: Session = Depends(get_db)):
+    """Tickers trading above their 55-day Donchian high right now.
+
+    NOT a signal, and never written to `signals`. A name here may fade
+    before the close and never be flagged — that is the end-of-day rule
+    working, not a miss. Nothing on this endpoint has a backtest behind it;
+    the measured system is `/api/entry-candidates`, computed from completed
+    daily closes.
+
+    Measured over 52,087 breakouts, entering at the signal day's close
+    rather than the next open was worth +0.04% on the 77% that cross
+    intraday. So this exists to show, not to decide.
+
+    Read-only. The scan that fills these tables is a scheduled job
+    (`python3 -m app.watch`) — a ~40-second fetch across 547 tickers cannot
+    sit on a page load.
+
+    `limit` defaults to 20 rather than entry-candidates' 10 because the
+    measured distribution is different: a median 24 names sit above their
+    level on a given day, 67 at the 90th percentile, 275 at the observed
+    maximum. Ten would truncate an ordinary day.
+    """
+    limit = max(1, min(limit, 50))
+
+    scan = watch.latest_scan(db)
+    now_et = watch.market_now_et()
+
+    held = {t for (t,) in db.query(models.Holding.ticker).all()}
+    flagged = {
+        t for (t,) in db.query(models.Signal.ticker)
+        .filter(models.Signal.entry_signal == True)  # noqa: E712
+        .all()
+    }
+
+    rows = db.query(models.WatchItem).all()
+
+    # Same key, same direction, same None handling as entry_candidates, so
+    # the two panels can never order the same tickers differently.
+    scored = [(r.atrs_above if r.atrs_above is not None else 0.0, r) for r in rows]
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+
+    items = [
+        schemas.WatchItemOut(
+            ticker=r.ticker,
+            price=r.price,
+            level=r.level,
+            atr=r.atr,
+            atrs_above=r.atrs_above,
+            prev_close=r.prev_close,
+            change_percent=(
+                round((r.price - r.prev_close) / r.prev_close * 100, 4)
+                if r.prev_close
+                else None
+            ),
+            gap_open=bool(r.gap_open),
+            # Held and already-flagged names are MARKED, not filtered — the
+            # opposite of entry-candidates, which excludes holdings because
+            # it is a buy list. This is an observation, and a position you
+            # hold going back above its 55-day high is among the most
+            # informative things on the page.
+            held=r.ticker in held,
+            already_flagged=r.ticker in flagged,
+        )
+        for _, r in scored[:limit]
+    ]
+
+    return schemas.WatchOut(
+        items=items,
+        scanned_at=scan.scanned_at if scan else None,
+        session_date=scan.session_date if scan else None,
+        market_open=watch.in_session(now_et),
+        stale=watch.is_stale(scan, now_et),
+        universe_size=scan.universe_size if scan else 0,
+        fetched=scan.fetched if scan else 0,
+        above_count=len(rows),
+        truncated=len(rows) > limit,
+    )
 
 
 @app.get("/api/rsi/holdings", response_model=List[schemas.RsiHoldingOut])

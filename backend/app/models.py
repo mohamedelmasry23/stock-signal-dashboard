@@ -187,3 +187,64 @@ class RsiSignal(Base):
     exit_signal = Column(Boolean, default=False)
     suggested_shares = Column(Float, nullable=True)
     updated_at = Column(DateTime, default=utcnow)
+
+
+class WatchItem(Base):
+    """One ticker trading above its 55-day Donchian high right now.
+
+    NOT a signal, and deliberately not in `signals`. A row here says only
+    "price is above the level a close would have to beat". It can appear
+    at 11:00, fade, close below and never be flagged — that is the
+    end-of-day rule working, not a miss. `signals` stays end-of-day and
+    authoritative because that is what the backtest describes; nothing in
+    this table has a backtest behind it.
+
+    Rewritten wholesale by each scan, the way the pipeline rewrites
+    `universe`. Row count is bounded by the scan universe (~547, with 275
+    the worst case observed in ten years of history), so it never grows.
+
+    On the rule that raw bars don't belong in this database (see
+    BacktestRun below): that rule is about unbounded, undifferentiated
+    *inputs*. A watch row is the same kind of object as a Signal row — one
+    derived observation per ticker, computed by a scheduled job, served
+    directly by the API. The bars it came from are discarded in the
+    function that computed it.
+
+    `level` is recomputed per scan and is NOT `signals.donchian_high`,
+    which is one bar stale for the session in progress. See app/watch.py.
+    """
+
+    __tablename__ = "watch_items"
+
+    ticker = Column(String, primary_key=True)
+    price = Column(Float, nullable=False)  # the in-progress bar's current price
+    level = Column(Float, nullable=False)  # 55-day high incl. the last completed session
+    atr = Column(Float, nullable=True)  # from completed bars only
+    atrs_above = Column(Float, nullable=True)  # (price - level) / atr — the ranking key
+    prev_close = Column(Float, nullable=True)  # last COMPLETED close, for the day's move
+    # Opened already above the level, rather than crossing during the
+    # session. 22.7% of historical breakouts, and MRNA's case.
+    gap_open = Column(Boolean, default=False)
+
+
+class WatchScan(Base):
+    """Single row (id=1): when the watchlist was last built, and how well.
+
+    Separate from `watch_items` because the freshness stamp has to survive
+    an empty result. Zero rows and no stamp is indistinguishable from
+    "never scanned"; zero rows stamped four minutes ago is a real and
+    useful answer — nothing is above its level right now.
+
+    `scanned_at` lives here rather than on each item because every item
+    comes from one atomic scan, so a per-row stamp would be the same value
+    repeated N times and could only ever diverge through a bug.
+    """
+
+    __tablename__ = "watch_scan"
+
+    id = Column(Integer, primary_key=True, default=1)
+    scanned_at = Column(DateTime, nullable=True)  # naive UTC, per app/timeutil.py
+    session_date = Column(Date, nullable=True)  # the ET calendar date this scan covers
+    universe_size = Column(Integer, default=0)  # tickers asked for
+    fetched = Column(Integer, default=0)  # tickers that came back with a today-bar
+    market_state = Column(String, nullable=True)  # "open" | "closed"
