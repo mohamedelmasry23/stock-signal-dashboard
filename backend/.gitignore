@@ -16,3 +16,10 @@ pipeline.log
 data/launchd.*.log
 data/pipeline_last_run.txt
 data/yf_cache/
+
+# Intraday watchlist scan output — same reason as pipeline.log: it names
+# real tickers from the real universe and is regenerated on every scan.
+watch.log
+data/watch_last_run.txt
+data/watch.launchd.out.log
+data/watch.launchd.err.log

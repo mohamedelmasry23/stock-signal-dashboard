@@ -1,0 +1,66 @@
+#!/bin/bash
+#
+# Wrapper for the intraday watchlist scan.
+#
+# Mirrors daily_pipeline.sh, for the same reason: a scheduled job that
+# fails silently is worse than no scheduled job. One line per run to
+# watch.log, and `tail watch.log` is enough to know.
+#
+# This scan is fired more often than it can usefully run — see the plist,
+# which schedules four fires so that daylight-saving drift between Athens
+# and New York can never silently kill the pre-close run. The scan itself
+# refuses outside 09:30-16:05 ET, so a fire outside the session is a
+# no-op, not a failure, and is logged as "skipped".
+#
+# Invoked by ~/Library/LaunchAgents/com.example.stock-tracker.watch.plist
+# Safe to run by hand at any time.
+
+set -uo pipefail
+
+BACKEND="$HOME/Projects/stock-signal-dashboard/backend"
+PYTHON="/Library/Frameworks/Python.framework/Versions/3.14/bin/python3"
+LOG="$BACKEND/watch.log"
+RAW="$BACKEND/data/watch_last_run.txt"
+
+cd "$BACKEND" || { echo "$(date '+%F %T') FATAL cannot cd to $BACKEND" >> "$LOG"; exit 1; }
+
+started=$(date '+%F %T %Z')
+"$PYTHON" -m app.watch > "$RAW" 2>&1
+status=$?
+
+skipped=$(grep -m1 'Outside the US session' "$RAW" || true)
+done_line=$(grep -m1 '^\[watch\] Done\.' "$RAW" || true)
+above=$(printf '%s' "$done_line" | sed -n 's/.*Done\. \([0-9]*\) above.*/\1/p')
+fetched=$(printf '%s' "$done_line" | sed -n 's/.*, \([0-9]*\) of [0-9]* tickers fetched.*/\1/p')
+asked=$(printf '%s' "$done_line" | sed -n 's/.*of \([0-9]*\) tickers fetched.*/\1/p')
+
+if [ "$status" -ne 0 ]; then
+    verdict="ERROR   scan exited $status"
+elif [ -n "$skipped" ]; then
+    # Not a warning. The guard refusing outside the session is the feature.
+    verdict="skipped outside the session window"
+elif [ -z "$done_line" ]; then
+    verdict="ERROR   scan produced no completion line"
+elif [ -z "$above" ] || [ -z "$fetched" ]; then
+    # The lesson from the pipeline wrapper: a summary that stops parsing
+    # must say so rather than logging blanks under an "ok".
+    verdict="WARNING summary line did not parse — has the scan's wording changed?"
+elif [ "${asked:-0}" -gt 0 ] && [ "$fetched" -lt $((asked / 2)) ]; then
+    verdict="WARNING only ${fetched} of ${asked} tickers fetched — scan is half blind"
+else
+    verdict="ok      ${above} above, ${fetched} of ${asked} fetched"
+fi
+
+printf '%s  %s\n' "$started" "$verdict" >> "$LOG"
+
+case "$verdict" in
+    ERROR*|WARNING*)
+        {
+            echo "--- full output for the scan started $started ---"
+            cat "$RAW"
+            echo "--- end ---"
+        } >> "$LOG"
+        ;;
+esac
+
+exit "$status"

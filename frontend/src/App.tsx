@@ -6,6 +6,7 @@ import { EntryCandidates } from './components/EntryCandidates'
 import { ExitAlert } from './components/ExitAlert'
 import { Header } from './components/Header'
 import { HoldingsPanel } from './components/HoldingsPanel'
+import { IntradayWatch } from './components/IntradayWatch'
 import { RsiEntryCandidates } from './components/RsiEntryCandidates'
 import { RsiExitAlert } from './components/RsiExitAlert'
 import { RsiHoldingsPanel } from './components/RsiHoldingsPanel'
@@ -25,6 +26,7 @@ import {
   type RsiEntryCandidate,
   type RsiHolding,
   type Status,
+  type Watch,
   type TickerDetail as TickerDetailData,
 } from './lib/api'
 
@@ -34,6 +36,7 @@ export default function App() {
   const [status, setStatus] = useState<Status | null>(null)
   const [account, setAccount] = useState<Account | null>(null)
   const [backtest, setBacktest] = useState<Backtest | null>(null)
+  const [watch, setWatch] = useState<Watch | null>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [candidates, setCandidates] = useState<EntryCandidate[]>([])
   const [rsiHoldings, setRsiHoldings] = useState<RsiHolding[]>([])
@@ -84,14 +87,18 @@ export default function App() {
           setRsiCandidates(c)
           setRsiBacktest(bt)
         } else {
-          const [h, c, bt] = await Promise.all([
+          const [h, c, bt, w] = await Promise.all([
             api.holdings(true),
             api.entryCandidates(10),
             api.backtest(),
+            // Reads a table a scheduled scan fills; no network work happens
+            // here, so it costs nothing to include in the same round trip.
+            api.watch(20),
           ])
           setHoldings(h)
           setCandidates(c)
           setBacktest(bt)
+          setWatch(w)
         }
         setFatalError(null)
       } catch (e) {
@@ -326,6 +333,9 @@ export default function App() {
                     busyTicker={busyTicker}
                   />
                 </div>
+                {/* Below the measured panels on purpose: signals first,
+                    then unmeasured live context, then the measurement. */}
+                <IntradayWatch watch={watch} loading={loading} onSelectTicker={openTicker} />
                 <BacktestPanel backtest={backtest} loading={loading} />
               </>
             )}

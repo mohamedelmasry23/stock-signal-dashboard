@@ -282,6 +282,38 @@ launchctl start com.yourname.stock-tracker.pipeline   # force a run to test
 tail -3 backend/pipeline.log
 ```
 
+### The intraday watchlist, and why it isn't a strategy
+
+`scripts/watch_scan.sh` runs during the US session and fills a separate
+`watch_items` table with whatever is trading above its 55-day high right now.
+It never writes to `signals`.
+
+That separation is measured, not stylistic. Across 52,087 breakouts in the
+cached decade:
+
+| | share | entering earlier vs the next-open fill |
+|---|---|---|
+| Gapped through the level at the open | 22.7% | **+0.96%** mean |
+| Crossed during the session | 77.3% | **+0.04%** mean |
+
+For the 77% where an intraday scan is the only way to see the move early,
+acting on it is worth four basis points — less than one side of costs. So
+there is no measured edge in reacting intraday, and the panel exists to show
+rather than to decide. The case where timing genuinely pays is the gap, and a
+gap is visible at 09:30 without any scanning at all.
+
+Two implementation notes that are easy to get wrong:
+
+The level is recomputed per scan rather than read from `signals.donchian_high`.
+The pipeline stores the level *that* session's close had to beat; the live
+session needs one that includes the last completed session's high. They differ
+on 15.5% of ticker-days, and on 2.37% the stored one would list a ticker that
+is not actually above its level — roughly a third of a median day's list of 24.
+
+The scan refuses outside 09:30–16:05 ET before making any network call. After
+16:05 the "in progress" bar is a finished one, and a level computed from it
+would silently include today's own high.
+
 It runs `scripts/daily_pipeline.sh`, which writes **one line per run**
 saying whether that run was healthy:
 

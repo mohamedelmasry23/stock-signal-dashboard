@@ -163,6 +163,43 @@ export interface Backtest {
   caveats: string[]
 }
 
+export interface WatchItem {
+  ticker: string
+  price: number
+  /** Recomputed per scan, NOT the stored donchian_high, which is one bar
+   *  stale for the session in progress. See backend/app/watch.py. */
+  level: number
+  atr: number | null
+  atrs_above: number | null
+  prev_close: number | null
+  /** Derived from price/prev_close by the backend — NOT Yahoo's own
+   *  already-scaled field on `Quote`. Same name, different provenance. */
+  change_percent: number | null
+  gap_open: boolean
+  held: boolean
+  already_flagged: boolean
+}
+
+/**
+ * The live watchlist and everything needed to say how much to trust it.
+ *
+ * `stale` is computed server-side and must be used as-is — do NOT reach for
+ * `isStale()` from lib/format, which is hardcoded to 24 hours for the daily
+ * pipeline and is wrong here by three orders of magnitude.
+ */
+export interface Watch {
+  items: WatchItem[]
+  scanned_at: string | null
+  session_date: string | null
+  market_open: boolean
+  stale: boolean
+  universe_size: number
+  fetched: number
+  /** Total above the level before `limit` truncated — 275 has been observed. */
+  above_count: number
+  truncated: boolean
+}
+
 export type ChartRange = '6M' | '1Y' | '2Y' | '5Y' | 'MAX'
 
 export const CHART_RANGES: ChartRange[] = ['6M', '1Y', '2Y', '5Y', 'MAX']
@@ -299,6 +336,10 @@ export const api = {
   entryCandidates: (limit = 10) => request<EntryCandidate[]>(`/entry-candidates?limit=${limit}`),
   account: (live = false) => request<Account>(`/account?live=${live}`),
   backtest: () => request<Backtest>('/backtest'),
+
+  // Reads a table filled by a scheduled scan (`python3 -m app.watch`);
+  // a ~40s fetch across 547 tickers can't sit on a page load.
+  watch: (limit = 20) => request<Watch>(`/watch?limit=${limit}`),
 
   // encodeURIComponent is what carries GC=F through the path — the '=' would
   // otherwise be ambiguous. Same reason as updateShares/removeHolding below.
