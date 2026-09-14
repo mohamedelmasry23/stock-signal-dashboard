@@ -5,7 +5,7 @@ which are the only two functions on this path that touch it.
 """
 
 import json
-from datetime import date, timedelta
+from datetime import date
 
 import pandas as pd
 import pytest
@@ -263,12 +263,27 @@ def test_an_in_progress_bar_never_carries_a_signal_marker(client, db, monkeypatc
     """A partial candle can be drawn — dimmed, and labelled as such — but a
     triangle on it would assert that a signal fired, which today's session
     has not yet earned."""
-    # Ends today, so the final bar is by definition still trading. The step
-    # has to exceed the high/low padding or the close only ever equals the
-    # prior high and nothing breaks out — which would make the last
-    # assertion below pass for the wrong reason.
+    from app import main
+
+    # The endpoint decides "partial" by comparing the last bar with
+    # main's `date.today()`, so pin that clock to a fixed weekday and end
+    # the frame on it. Built off the real today instead, a weekend run's
+    # last business day is Friday — a finished session — and the test
+    # failed every Saturday and Sunday.
+    session = date(2026, 8, 11)  # a Tuesday
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return session
+
+    monkeypatch.setattr(main, "date", FixedDate)
+
+    # The step has to exceed the high/low padding or the close only ever
+    # equals the prior high and nothing breaks out — which would make the
+    # last assertion below pass for the wrong reason.
     closes = [100.0 + 2 * i for i in range(120)]
-    idx = pd.bdate_range(end=date.today() + timedelta(days=1), periods=len(closes))
+    idx = pd.bdate_range(end=session, periods=len(closes))
     frame = pd.DataFrame(
         {
             "Open": closes,
