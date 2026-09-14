@@ -6,11 +6,17 @@
 # fails silently is worse than no scheduled job. One line per run to
 # watch.log, and `tail watch.log` is enough to know.
 #
-# This scan is fired more often than it can usefully run — see the plist,
-# which schedules four fires so that daylight-saving drift between Athens
-# and New York can never silently kill the pre-close run. The scan itself
-# refuses outside 09:30-16:05 ET, so a fire outside the session is a
-# no-op, not a failure, and is logged as "skipped".
+# This scan is fired more often than it can usefully run. launchd reads
+# the plist's hours as the Mac's LOCAL time, so the plist carries two sets
+# of four daily fires aimed at 09:45/12:30/14:45/15:45 ET: one written in
+# Athens time (16:45/19:30/21:45/22:45) and one in Eastern time. Whichever
+# set doesn't match the Mac's current zone lands outside the session. That
+# happened for real: when the Mac moved from Athens to Toronto time at the
+# end of August 2026, the Athens-only schedule skipped every scan for two
+# weeks. The four fires per zone also absorb the weeks when Athens and New
+# York daylight-saving changes don't line up. The scan itself refuses
+# outside 09:30-16:05 ET, so a fire outside the session is a no-op, not a
+# failure, and is logged as "skipped".
 #
 # Invoked by ~/Library/LaunchAgents/com.example.stock-tracker.watch.plist
 # Safe to run by hand at any time.

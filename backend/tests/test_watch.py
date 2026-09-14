@@ -236,6 +236,31 @@ def test_a_scan_that_has_aged_out_reports_itself_stale(db):
     assert watch.is_stale(watch.latest_scan(db), MID_SESSION) is True
 
 
+def test_todays_scan_after_the_close_is_stale_but_still_this_session(db):
+    """Stale and current-session have to come apart: at 17:00 the 15:45
+    scan is too old to present as live, but it is still the last look at
+    the session the pipeline is about to judge, so the panel keeps it."""
+    db.add(
+        models.WatchScan(
+            id=1, scanned_at=utcnow() - timedelta(minutes=75),
+            session_date=MID_SESSION.date(), universe_size=1, fetched=1,
+            market_state="open",
+        )
+    )
+    db.commit()
+    evening = MID_SESSION.replace(hour=17)
+    scan = watch.latest_scan(db)
+
+    assert watch.is_stale(scan, evening) is True
+    assert watch.is_current_session(scan, evening) is True
+    # And the next morning it belongs to a previous session.
+    assert watch.is_current_session(scan, MID_SESSION + timedelta(days=1)) is False
+
+
+def test_no_scan_is_never_the_current_session():
+    assert watch.is_current_session(None, MID_SESSION) is False
+
+
 # --- the endpoint -----------------------------------------------------
 
 
@@ -346,6 +371,24 @@ def test_the_endpoint_reports_a_previous_sessions_scan_as_stale(client, db):
     db.commit()
 
     assert client.get("/api/watch").json()["stale"] is True
+
+
+def test_the_endpoint_says_whether_the_scan_is_from_todays_session(client, db, monkeypatch):
+    """The panel hides the list outright when this is False. Keyed only on
+    `stale`, a stored list from 17 days earlier stayed on screen — dimmed,
+    but there — after the schedule silently stopped scanning."""
+    monkeypatch.setattr(watch, "market_now_et", lambda: MID_SESSION)
+    add_watch(db, "AAA", price=110.0, level=100.0)
+    stamp_scan(db, session_date=MID_SESSION.date() - timedelta(days=17))
+    db.commit()
+
+    assert client.get("/api/watch").json()["current_session"] is False
+
+    db.query(models.WatchScan).delete()
+    stamp_scan(db)
+    db.commit()
+
+    assert client.get("/api/watch").json()["current_session"] is True
 
 
 def test_an_unscanned_instance_says_so_rather_than_showing_nothing(client, db):

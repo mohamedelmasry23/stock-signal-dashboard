@@ -358,6 +358,7 @@ def watchlist(limit: int = 20, db: Session = Depends(get_db)):
         session_date=scan.session_date if scan else None,
         market_open=watch.in_session(now_et),
         stale=watch.is_stale(scan, now_et),
+        current_session=watch.is_current_session(scan, now_et),
         universe_size=scan.universe_size if scan else 0,
         fetched=scan.fetched if scan else 0,
         above_count=len(rows),

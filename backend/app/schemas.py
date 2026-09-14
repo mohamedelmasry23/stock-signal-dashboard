@@ -151,6 +151,10 @@ class WatchOut(BaseModel):
     session_date: Optional[date] = None
     market_open: bool = False
     stale: bool = True
+    # Taken during today's New York session. False hides the list entirely;
+    # `stale` alone can't, because it is also true of today's own scan an
+    # hour after the close.
+    current_session: bool = False
     universe_size: int = 0
     fetched: int = 0
     above_count: int = 0  # total above the level, before `limit` truncates

@@ -193,6 +193,8 @@ export interface Watch {
   session_date: string | null
   market_open: boolean
   stale: boolean
+  /** Scan was taken during today's New York session. False = don't show its list. */
+  current_session: boolean
   universe_size: number
   fetched: number
   /** Total above the level before `limit` truncated — 275 has been observed. */

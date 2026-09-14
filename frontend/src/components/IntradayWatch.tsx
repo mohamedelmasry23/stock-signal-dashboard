@@ -151,9 +151,12 @@ export function IntradayWatch({
 
   if (!watch) return null
 
-  // Never present a scan from a previous session as if it were today's.
+  // Never present a scan from a previous session as if it were today's —
+  // not even dimmed. This used to also require an empty list, so a stored
+  // list from any earlier day stayed on screen: when the schedule silently
+  // stopped scanning, the panel showed a 17-day-old list as "Stale".
   const neverScanned = watch.scanned_at == null
-  const wrongSession = watch.stale && !watch.market_open && watch.items.length === 0
+  const wrongSession = !watch.current_session
   const noScanToday = neverScanned || wrongSession
 
   // Outside the session the last scan stays visible — it is the closest
@@ -196,7 +199,7 @@ export function IntradayWatch({
         <EmptyState
           icon={<Activity size={28} strokeWidth={1.5} />}
           title="No scan yet today"
-          hint="The intraday scan runs three times during the US session. Outside those hours this panel stays empty rather than showing yesterday's list."
+          hint="The intraday scan runs four times during the US session, from about 9:45 to 15:45 ET. Until today's first scan this panel stays empty rather than showing an earlier day's list."
         />
       ) : watch.items.length === 0 ? (
         <EmptyState

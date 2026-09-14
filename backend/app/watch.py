@@ -308,11 +308,24 @@ def is_stale(scan: Optional[models.WatchScan], now_et: datetime, max_age_minutes
     yesterday's 15:45 scan from today's — and yesterday's list shown at
     today's open is the most misleading thing this panel could do.
     """
-    if scan is None or scan.scanned_at is None:
-        return True
-    if scan.session_date != now_et.date():
+    if not is_current_session(scan, now_et):
         return True
     return (utcnow() - scan.scanned_at).total_seconds() > max_age_minutes * 60
+
+
+def is_current_session(scan: Optional[models.WatchScan], now_et: datetime) -> bool:
+    """Whether the stored scan was taken during today's New York session.
+
+    Separate from `is_stale` because the panel needs the two apart: a scan
+    from 15:45 today is stale by 17:00 but is still the last look at the
+    session the pipeline is about to judge, so it stays on screen. A scan
+    from any earlier session never does — including the weekend after a
+    Friday scan, and the two weeks in which a mis-timed schedule skipped
+    every scan and the panel kept showing a 17-day-old list.
+    """
+    if scan is None or scan.scanned_at is None:
+        return False
+    return scan.session_date == now_et.date()
 
 
 if __name__ == "__main__":  # pragma: no cover - entry point
