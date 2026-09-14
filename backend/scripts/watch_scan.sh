@@ -31,7 +31,8 @@ RAW="$BACKEND/data/watch_last_run.txt"
 cd "$BACKEND" || { echo "$(date '+%F %T') FATAL cannot cd to $BACKEND" >> "$LOG"; exit 1; }
 
 started=$(date '+%F %T %Z')
-"$PYTHON" -m app.watch > "$RAW" 2>&1
+# Kept awake for the scan's duration — see daily_pipeline.sh for why.
+/usr/bin/caffeinate -i -s "$PYTHON" -m app.watch > "$RAW" 2>&1
 status=$?
 
 skipped=$(grep -m1 'Outside the US session' "$RAW" || true)

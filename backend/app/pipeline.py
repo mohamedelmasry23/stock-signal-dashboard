@@ -143,6 +143,12 @@ COMMODITY_TICKERS = [
 CHUNK_SIZE = 50
 PERIOD = "2y"
 PAUSE_BETWEEN_CHUNKS_SEC = 1.0
+# Before the one retry pass over tickers that came back empty. Those are
+# almost never bad symbols: yfinance says "possibly delisted" for any empty
+# response, and the nights with 20-99 of them (MSFT and NVDA among them)
+# were runs launched from a battery DarkWake, with the Mac asleep again
+# seconds later and downloads cut off mid-flight.
+RETRY_PAUSE_SEC = 10.0
 
 SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 # Wikipedia's user-agent policy: identify the tool, not a browser spoof.
@@ -188,6 +194,20 @@ def get_sp500_tickers() -> List[str]:
     except Exception as e:
         print(f"[pipeline] WARNING: couldn't fetch S&P 500 list ({e}); skipping equities.")
         return []
+
+
+def stored_equity_tickers(db) -> List[str]:
+    """The equities the previous run wrote to `universe`.
+
+    The fallback when Wikipedia can't be reached. Without it, a failed fetch
+    shrank the universe to EXTRA_EQUITY_TICKERS — two names — and, because
+    `universe` is rewritten wholesale below, took the stored S&P list with
+    it: every consumer of that table, the intraday scan included, then saw
+    a 45-ticker market until the next good night. Twice in September 2026,
+    both times because the run started seconds after a wake from sleep.
+    """
+    rows = db.query(Universe.ticker).filter(Universe.asset_class == "equity").all()
+    return sorted(t for (t,) in rows)
 
 
 def get_extra_equity_tickers() -> List[str]:
@@ -402,7 +422,20 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
     sync_new_columns()
     db = SessionLocal()
     try:
-        equities = get_sp500_tickers() + get_extra_equity_tickers()
+        sp500 = get_sp500_tickers()
+        if not sp500:
+            sp500 = stored_equity_tickers(db)
+            if sp500:
+                # Its own line, matched by the wrapper: the run is usable,
+                # but its universe is a day old and someone should know.
+                print(
+                    f"[pipeline] WARNING: S&P 500 list unavailable; reusing the "
+                    f"{len(sp500)} equities stored by the last run."
+                )
+        # dict.fromkeys de-duplicates in order: a reused list already
+        # contains the extras, and counting them twice would inflate the
+        # equity count the wrapper checks.
+        equities = list(dict.fromkeys(sp500 + get_extra_equity_tickers()))
         commodities = get_commodity_tickers()
         index_etfs = get_index_etf_tickers()
         held = [t for (t,) in db.query(Holding.ticker).all()]
@@ -450,6 +483,55 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
         # straddled the cutoff would otherwise trim some tickers and not
         # others, leaving the signals table with two different as_of_dates.
         now_et = market_now_et()
+
+        def process(ticker: str, df: Optional[pd.DataFrame]) -> None:
+            nonlocal computed, failed, rsi_computed, rsi_failed, in_progress
+            # Before anything reads the frame: today's unfinished bar is
+            # not a bar. Trimming here rather than after the strategy
+            # matters — ATR averages true range including the partial
+            # high/low, so dropping the row later would leave a
+            # contaminated ATR on the row that survives.
+            if df is not None:
+                trimmed = drop_in_progress_bar(df, now_et)
+                if len(trimmed) != len(df):
+                    in_progress += 1
+                df = trimmed
+            # A listing whose only bar is today trims to nothing, and is
+            # counted here rather than raising on .iloc[-1] below.
+            if df is None or df.empty:
+                failed += 1
+                return
+            prev = previous_close(df)
+            try:
+                sig = compute_signal_frame(df)
+                last = sig.iloc[-1]
+                if pd.isna(last["Close"]):
+                    failed += 1
+                    return
+                upsert_signal(db, ticker, last, prev)
+                computed += 1
+            except Exception as e:
+                print(f"[pipeline] WARNING: signal calc failed for {ticker} ({e})")
+                failed += 1
+
+            # Second strategy, same bars — no extra fetch. Caught
+            # separately so a fault in the newer strategy can never
+            # cost the Donchian signals, which are what the exit
+            # alerts on the main page depend on.
+            if ticker in rsi_tickers:
+                try:
+                    rsi_last = compute_rsi_signal_frame(df).iloc[-1]
+                    if not pd.isna(rsi_last["Close"]):
+                        upsert_rsi_signal(db, ticker, rsi_last, prev)
+                        rsi_computed += 1
+                except Exception as e:
+                    print(f"[pipeline] WARNING: RSI calc failed for {ticker} ({e})")
+                    rsi_failed += 1
+
+        # Tickers that came back with no data at all, held for one retry
+        # rather than counted as failed on the spot. See RETRY_PAUSE_SEC.
+        missing: List[str] = []
+
         for i in range(0, len(all_tickers), CHUNK_SIZE):
             chunk = all_tickers[i:i + CHUNK_SIZE]
             print(f"[pipeline] Fetching {i + 1}-{i + len(chunk)} of {len(all_tickers)}...")
@@ -457,57 +539,45 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
             try:
                 data = fetch_fn(chunk)
             except Exception as e:
-                print(f"[pipeline] WARNING: batch fetch failed for this chunk ({e}); skipping.")
-                failed += len(chunk)
+                print(f"[pipeline] WARNING: batch fetch failed for this chunk ({e}); will retry.")
+                missing.extend(chunk)
                 continue
 
             for ticker in chunk:
                 df = data.get(ticker)
-                # Before anything reads the frame: today's unfinished bar is
-                # not a bar. Trimming here rather than after the strategy
-                # matters — ATR averages true range including the partial
-                # high/low, so dropping the row later would leave a
-                # contaminated ATR on the row that survives.
-                if df is not None:
-                    trimmed = drop_in_progress_bar(df, now_et)
-                    if len(trimmed) != len(df):
-                        in_progress += 1
-                    df = trimmed
-                # A listing whose only bar is today trims to nothing, and is
-                # counted here rather than raising on .iloc[-1] below.
                 if df is None or df.empty:
-                    failed += 1
+                    missing.append(ticker)
                     continue
-                prev = previous_close(df)
-                try:
-                    sig = compute_signal_frame(df)
-                    last = sig.iloc[-1]
-                    if pd.isna(last["Close"]):
-                        failed += 1
-                        continue
-                    upsert_signal(db, ticker, last, prev)
-                    computed += 1
-                except Exception as e:
-                    print(f"[pipeline] WARNING: signal calc failed for {ticker} ({e})")
-                    failed += 1
-
-                # Second strategy, same bars — no extra fetch. Caught
-                # separately so a fault in the newer strategy can never
-                # cost the Donchian signals, which are what the exit
-                # alerts on the main page depend on.
-                if ticker in rsi_tickers:
-                    try:
-                        rsi_last = compute_rsi_signal_frame(df).iloc[-1]
-                        if not pd.isna(rsi_last["Close"]):
-                            upsert_rsi_signal(db, ticker, rsi_last, prev)
-                            rsi_computed += 1
-                    except Exception as e:
-                        print(f"[pipeline] WARNING: RSI calc failed for {ticker} ({e})")
-                        rsi_failed += 1
+                process(ticker, df)
 
             db.commit()  # commit progress per chunk rather than one giant transaction
             if i + CHUNK_SIZE < len(all_tickers):
                 time.sleep(PAUSE_BETWEEN_CHUNKS_SEC)  # be polite to Yahoo's rate limits
+
+        # One retry, once, for everything that came back empty. Anything
+        # still empty afterwards is counted as failed by process() — a
+        # genuinely dead symbol costs one extra request a night, no more.
+        if missing:
+            print(f"[pipeline] Retrying {len(missing)} ticker(s) that came back empty...")
+            time.sleep(RETRY_PAUSE_SEC)
+            recovered = 0
+            for i in range(0, len(missing), CHUNK_SIZE):
+                chunk = missing[i:i + CHUNK_SIZE]
+                try:
+                    data = fetch_fn(chunk)
+                except Exception as e:
+                    print(f"[pipeline] WARNING: retry fetch failed for this chunk ({e}).")
+                    data = {}
+                for ticker in chunk:
+                    df = data.get(ticker)
+                    if df is not None and not df.empty:
+                        recovered += 1
+                    process(ticker, df)
+                db.commit()
+                if i + CHUNK_SIZE < len(missing):
+                    time.sleep(PAUSE_BETWEEN_CHUNKS_SEC)
+            # Own line, not a change to "Done." — see the note at the end.
+            print(f"[pipeline] Retry recovered {recovered} of {len(missing)} ticker(s).")
 
         # Position sizing depends on account equity, and equity depends on
         # what your holdings are worth — which isn't known until the loop
