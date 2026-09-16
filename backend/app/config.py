@@ -59,3 +59,16 @@ def is_point_in_time(universe_label: str) -> bool:
     """True when a run's universe came from a frozen membership snapshot
     rather than from today's scraped index."""
     return bool(POINT_IN_TIME_UNIVERSE.search(universe_label or ""))
+
+
+# The third kind of S&P run: membership switched day by day, either from
+# dated change events (`sp500_events,etfs`) or from the constituents
+# workbook's intervals (`sp500_constituents,etfs`, the S&P source from
+# 2026-09-14 on) — see app/backtest/membership.py. The only kind a person
+# could actually have traded, so when one is saved the API makes it the
+# headline and serves the today's-list run beside it as `current_list`.
+ROLLING_MEMBERSHIP_UNIVERSE = re.compile(r"sp500_(events|constituents)")
+
+
+def is_rolling_membership(universe_label: str) -> bool:
+    return bool(ROLLING_MEMBERSHIP_UNIVERSE.search(universe_label or ""))

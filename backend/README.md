@@ -115,6 +115,69 @@ artifacts (`equity.csv`, `trades.csv`, `summary.md`) go to
 `data/backtests/`. Bars are cached in `data/prices_cache.db`, so re-runs
 need no network — add `--offline` to guarantee it.
 
+### The S&P universe: the constituents workbook (every S&P run from 2026-09-14)
+
+```bash
+python3 -m app.backtest --universe constituents:data/universes/sp500_constituents.csv,etfs \
+  --start 2016-01-01 --both-variants --save
+```
+
+Each company is tradeable only while it was an S&P 500 member, switched on
+the **effective** date. Membership comes from a point-in-time constituents
+workbook built from public sources
+(`data/universes/sources/SP500_Historical_Constituents_2016_2025.xlsx`),
+converted by `python3 -m app.backtest.sp500_constituents` into
+`data/universes/sp500_constituents.csv` — one row per stretch of membership,
+keyed by the ticker Yahoo prices the company under. 2026 continues from the
+workbook's year-end list with the 2026 rows of `sp500_events.csv`, and the
+result lands exactly on today's list (`sp500_anchor.txt`). Saved, this run
+is the dashboard's headline; today's-list run is drawn dashed beside it.
+
+Same bars as every run below (2016-01-04 to 2026-08-11), 10 bps round trip:
+
+| | **Workbook membership** | + 2×ATR stop | Events membership (previous) | Today's list | SPY |
+|---|---|---|---|---|---|
+| Total return | **164%** | 209% | 177% | 863% | 353% |
+| CAGR | **9.6%** | 11.2% | 10.1% | 23.8% | 15.3% |
+| Max drawdown | **−28.5%** | −39.1% | −28.5% | −32.2% | −33.7% |
+| Sharpe | **0.63** | 0.63 | 0.65 | 1.04 | 0.89 |
+| Trades | 449 | 560 | 435 | 437 | — |
+
+The conclusion doesn't move: **the strategy does not beat buy-and-hold on
+the S&P 500**. The workbook and `sp500_events.csv` descend from the same
+Wikipedia change log and agree on ~99% of company-days, so the 13-point
+difference is mostly path dependence — with 20 slots, a handful of changed
+members reshuffles which breakouts get capital. The differences that are
+real, all checked by hand:
+
+- **Effective, not announcement, dates.** A company joins the day it enters
+  the index rather than the evening S&P announces it.
+- **Eight removals the workbook's yearly sheets get wrong.** BorgWarner,
+  Celanese, FMC and Teleflex left on 2025-03-24 but the 2025 sheet keeps
+  them to 31 December; Vornado (2023), Tiffany (2021), WellCare (2020) and
+  SCANA (2019) likewise. The workbook's own change log has the right dates,
+  and `apply_change_log()` uses them.
+- **DuPont is back.** The events replay dropped `DD` from September 2017 on
+  (the old DuPont's removal and DowDuPont's rename collide on one ticker);
+  the workbook keeps DowDuPont/DuPont a member throughout, which it was.
+- **Ticker keying.** The workbook names companies as they were then; five
+  renames it doesn't record are in `EXTRA_RENAMES` (BK→BNY, MMC→MRSH,
+  EQR→VMRK, WYND→TNL, and IR→TT, split at 2020-03-02 when Gardner Denver
+  took the IR symbol). Dr Pepper Snapple and Wyndham Worldwide now carry
+  price history (KDP, TNL) for 2016–18 where the events file had none.
+
+87 of the 707 companies still have no Yahoo data — the purged failures —
+so this still leans optimistic. The workbook fixes *membership*; it can't
+fix missing *prices*.
+
+The ATR-stop variant ends higher here (209%) but at the same Sharpe and a
+10-point deeper drawdown: more return for proportionally more risk, not a
+better system.
+
+`--index-overlay` still needs `events:data/universes/sp500_events.csv` —
+the workbook has no announcement dates. The sections below describe the
+earlier measurements and remain accurate for what they measured.
+
 ### Results (2016-01 to 2026-08, 10 bps round-trip costs)
 
 | | S&P 500 (today's list) | S&P 500 (2016 list) | Commodities + ETFs | SPY buy & hold |
@@ -156,6 +219,11 @@ So the honest conclusion is that the true result lies somewhere between
 That is a real finding, not a failure. It's a far more useful thing to
 know than a single confident number that happens to be wrong.
 
+> **Superseded 2026-09-12.** A run on membership as it actually was, day
+> by day, came in *below* the 2016 "floor" — see [Membership as it
+> actually was](#membership-as-it-actually-was). The bracket reasoning
+> doesn't hold for a strategy that picks 20 names out of 500.
+
 ### How partial the mitigation is
 
 The 2016 run is better, not fixed. Of the 186 removed tickers, **only 84
@@ -185,6 +253,113 @@ run it exists to be compared against. Renaming the file to something
 without a four-digit year would silently turn it back into an ordinary
 run: `is_point_in_time()` in `app/config.py` is the one definition, and
 both the report's caveats and the dashboard's read from it.
+
+### Membership as it actually was
+
+```bash
+python3 -m app.backtest --universe events:data/universes/sp500_events.csv,etfs \
+  --index-overlay --offline
+```
+
+Each company is tradeable only while it was in the S&P 500, switching on
+the day S&P **announced** the change. `--index-overlay` runs it twice:
+once as that membership filter alone, and once also buying each addition at
+the open after its announcement and selling any holding at the open after
+its removal is announced — additions then held until Donchian's own exit.
+Same bars as above (2016-01-04 to 2026-08-11), 10 bps round trip:
+
+| | Today's list | 2016 list | **Actual membership** | + announcement overlay | SPY |
+|---|---|---|---|---|---|
+| Total return | 870% | 202% | **177%** | 141% | 353% |
+| CAGR | 23.9% | 11.0% | **10.1%** | 8.7% | 15.3% |
+| Max drawdown | −32.2% | −52.0% | **−28.5%** | −30.6% | −33.7% |
+| Sharpe | 1.05 | 0.47 | **0.65** | 0.56 | 0.89 |
+| Trades | 441 | 439 | 435 | 466 | — |
+
+(Today's list reads 870% rather than 863% — same bars, so most likely
+because the list itself has changed since August: Reddit and Ferguson in,
+AvalonBay and Electronic Arts out.)
+
+**The strategy does not beat buy-and-hold on the S&P 500.** 177% is the
+best estimate available from free data, and it still leans optimistic:
+91 of the 712 companies that were members at some point since 2016 have
+no Yahoo data, and the missing ones are disproportionately the failures.
+So the true figure is most likely lower still. It isn't an artefact of the
+start date either — the gap holds from every start tried:
+
+| Start | Actual membership | SPY | Sharpe (strategy / SPY) |
+|---|---|---|---|
+| 2016-01 | 177% | 353% | 0.65 / 0.89 |
+| 2017-01 | 159% | 296% | 0.65 / 0.88 |
+| 2018-01 | 115% | 226% | 0.58 / 0.82 |
+
+**The 2016 "floor" wasn't a floor.** Nothing guarantees that two wrong
+lists bound the right one when the strategy only ever holds ~20 names out
+of ~500: which companies are in the pool changes which breakouts win a
+slot, and the whole path after that. The replay also shows that 36 of the
+"186 removed tickers" counted above are companies that changed ticker —
+most still in the index (FB → META, PCLN → BKNG, UTX → RTX, …) — which
+Yahoo keys under the new symbol, so the 2016 run simply lost them. The
+purged-data problem is real, but smaller than that count made it look.
+
+**The announcement overlay makes it worse** — by 35 points and 0.09 of
+Sharpe here, and in every variation tried: from all three start dates
+(−35, −54, −39 points) and at three smaller position sizes (−12 to −20).
+Where it goes:
+
+- **It can rarely afford the trade.** Of 208 addition announcements, 139
+  found no cash: Donchian sits ~97% invested. 39 more were untradeable —
+  16 with no Yahoo data at all, 23 spin-offs with no price history yet on
+  the announcement day. 30 were bought, 21 of those smaller than intended.
+- **The ones it buys don't pay.** 30 trades, 43% won, average −0.51% —
+  against +1.78% for Donchian's own entries. And they spend cash a
+  breakout would have used: signals skipped for capital rose from 784 to
+  1,158.
+- **Removals barely come up.** One holding was sold on a removal
+  announcement: Donchian rarely owns a company at the moment S&P drops it.
+- **The feared failure mode was rare.** Donchian's exit is a state (close
+  below the 20-day low), so an addition bought below that level is sold
+  the next bar. It happened once in 30.
+
+What it cannot measure: S&P announces after the close, so the earliest
+honest fill is the next open, after the overnight gap where much of the
+announcement move happens. That part of the pop is out of reach of a
+daily-bar backtest and, for a retail account, of the trade itself.
+
+**Where the dates come from.** `data/universes/sp500_events.csv` holds
+231 changes since 2016, each with its announcement date and the source of
+that date: 221 from S&P's own press archive, 10 from S&P documents cited on
+Wikipedia, none guessed. Where the archive and Wikipedia both had a date
+they agreed on all but three: two Wikipedia rows cite the wrong release,
+and one cites an S&P document dated the day before its release. Fourteen rows are
+renames recorded as replacements (FleetCor → Corpay, …) and are marked
+`continuation` so they re-key the ticker instead of trading. The file is
+replayed backwards from today's list (`sp500_anchor.txt`), because a
+forward replay from 2016 would lose every ticker change — and that replay
+reproduces the independently archived `sp500_2016.txt` exactly, up to the
+36 ticker changes, Fossil (whose replacement was announced before the
+start), and one collision: Dow Chemical and the old DuPont both resolve to
+`DD`, two companies under one Yahoo ticker. That cross-check is pinned
+by `test_the_committed_file_replays_to_the_archived_2016_list`.
+
+Rebuild both files (a few minutes; about 230 polite requests to S&P's
+archive) with `python3 -m app.backtest.sp500_events`, then drop any row
+from `PENDING` that the Wikipedia table has caught up with.
+
+**On the dashboard.** Saved without `--index-overlay`, the membership run
+is drawn as the bold "Members at the time" line on the backtest chart,
+with today's list dashed and the 2016 list dotted beside it:
+
+```bash
+python3 -m app.backtest --universe events:data/universes/sp500_events.csv,etfs \
+  --offline --save
+```
+
+The API keys it off the `sp500_events` label (`is_rolling_membership()` in
+`app/config.py`) and serves it as its own `membership` series, so it never
+displaces the today's-list run the headline figures come from. `--save`
+is still refused with `--index-overlay`: the dashboard has no place for
+that run, and the live pipeline has no announcement feed to trade it.
 
 ### What the numbers actually say
 

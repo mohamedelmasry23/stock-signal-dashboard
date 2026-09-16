@@ -12,7 +12,14 @@ from sqlalchemy.orm import Session
 from . import history, models, schemas, watch
 from .account import get_settings, positions_value, resolve_equity, suggested_shares
 from .quotes import get_quotes
-from .config import ALLOWED_ORIGINS, API_KEY, DEMO_MODE, READ_ONLY, is_point_in_time
+from .config import (
+    ALLOWED_ORIGINS,
+    API_KEY,
+    DEMO_MODE,
+    READ_ONLY,
+    is_point_in_time,
+    is_rolling_membership,
+)
 from .database import Base, engine, get_db, sync_new_columns
 from .security import require_write_access
 from .signals import RSI_ENTRY_THRESHOLD
@@ -560,24 +567,37 @@ def _backtest_out(db: Session, strategy: str) -> schemas.BacktestOut:
         if (run.strategy or "donchian") == strategy
     ]
 
-    def latest(variant: str, point_in_time: bool) -> Optional[models.BacktestRun]:
+    def kind(run: models.BacktestRun) -> str:
+        universe = run.universe or ""
+        if is_rolling_membership(universe):
+            return "membership"
+        return "snapshot" if is_point_in_time(universe) else "current"
+
+    def latest(variant: str, universe_kind: str) -> Optional[models.BacktestRun]:
         return next(
-            (
-                run
-                for run in stored
-                if run.variant == variant
-                and is_point_in_time(run.universe or "") == point_in_time
-            ),
+            (run for run in stored if run.variant == variant and kind(run) == universe_kind),
             None,
         )
 
-    faithful = latest("faithful", False)
-    atr_stop = latest("atr_stop", False)
-    # The point-in-time run is an extra curve beside the other two, not a
-    # replacement for them. Selecting purely on "newest of each variant"
-    # would let it silently displace the current-list run it exists to be
-    # compared against — the comparison is the whole point of running it.
-    point_in_time = latest("faithful", True)
+    # A membership run — each company traded only while it was actually in
+    # the index — is the headline whenever one is saved: it is the only S&P
+    # universe a person could really have traded (decided
+    # 2026-09-14). The today's-list run then steps back to a comparison
+    # curve, `current_list`. Without one, today's list stays the headline.
+    #
+    # The comparison curves are chosen by kind, never by "newest of each
+    # variant": that would let whichever was saved last displace the run
+    # it exists to be compared against.
+    membership = latest("faithful", "membership")
+    if membership:
+        faithful = membership
+        atr_stop = latest("atr_stop", "membership")
+        current_list = latest("faithful", "current")
+    else:
+        faithful = latest("faithful", "current")
+        atr_stop = latest("atr_stop", "current")
+        current_list = None
+    point_in_time = latest("faithful", "snapshot")
 
     caveats: list[str] = []
     primary = faithful or atr_stop
@@ -594,7 +614,16 @@ def _backtest_out(db: Session, strategy: str) -> schemas.BacktestOut:
         caveats.append(
             "Prices include reinvested dividends; the benchmark is treated identically."
         )
-        if "sp500" in (primary.universe or "") and point_in_time:
+        if membership:
+            caveats.append(
+                "Survivorship bias is reduced, not removed: these figures trade each company "
+                "only while it was actually in the S&P 500, the closest to what could have been "
+                "traded at the time. They still lean optimistic, because free price data is "
+                "missing for many companies that were later removed, and those were "
+                "disproportionately the failures. The run on today's list is shown only for "
+                "comparison — it could buy companies before they joined."
+            )
+        elif "sp500" in (primary.universe or "") and point_in_time:
             caveats.append(
                 "Survivorship bias is bracketed, not removed: the main run uses today's "
                 "S&P 500 membership and so overstates, the point-in-time run freezes "
@@ -616,6 +645,7 @@ def _backtest_out(db: Session, strategy: str) -> schemas.BacktestOut:
         faithful=_backtest_run_out(db, faithful) if faithful else None,
         atr_stop=_backtest_run_out(db, atr_stop) if atr_stop else None,
         point_in_time=_backtest_run_out(db, point_in_time) if point_in_time else None,
+        current_list=_backtest_run_out(db, current_list) if current_list else None,
         caveats=caveats,
     )
 

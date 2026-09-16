@@ -14,7 +14,7 @@ from typing import Optional
 
 import pandas as pd
 
-from ..config import is_point_in_time
+from ..config import is_point_in_time, is_rolling_membership
 from .config import BacktestConfig
 from .engine import BacktestResult
 from .strategies import get_strategy
@@ -71,7 +71,19 @@ def caveats(result: BacktestResult, universe_label: str, dropped: int = 0) -> li
         f"the benchmark is treated identically.",
     ]
 
-    if is_point_in_time(universe_label):
+    if is_rolling_membership(universe_label):
+        # Checked first: this label contains "sp500", and the branches
+        # below would call a rolling-membership run a survivors-only one.
+        switched = ("the announcement date" if "sp500_events" in universe_label
+                    else "the effective date")
+        notes.append(
+            "ROLLING MEMBERSHIP: each company is tradeable only while it was an S&P 500 "
+            f"member, switched on {switched}. That removes both the survivor "
+            "filter and the frozen-list bias, but not the missing data: companies Yahoo "
+            "has purged — most bankruptcies among them — are still absent, so the result "
+            "still leans optimistic, by less than a today's-list run."
+        )
+    elif is_point_in_time(universe_label):
         notes.append(
             "POINT-IN-TIME UNIVERSE: membership is frozen at the snapshot date, so "
             "companies removed from the index later are back in and companies added "
@@ -88,6 +100,16 @@ def caveats(result: BacktestResult, universe_label: str, dropped: int = 0) -> li
         )
     if dropped:
         notes.append(f"{dropped} ticker(s) returned no data and were silently excluded.")
+
+    if cfg.index_overlay:
+        notes.append(
+            "INDEX OVERLAY: S&P publishes changes after the close, so an addition is bought "
+            "at the next open — after the overnight gap where much of the announcement "
+            "move happens. Additions are then held until the strategy's own exit, which is "
+            "a state (close below the 20-day low), so one bought while already below that "
+            "level is sold a bar later. Backtest-only: the live pipeline has no "
+            "announcement feed, so the dashboard's signals do not include this."
+        )
 
     if not cfg.use_atr_stop:
         exit_rule = (
@@ -122,6 +144,38 @@ def caveats(result: BacktestResult, universe_label: str, dropped: int = 0) -> li
             "evidence either way."
         )
     return notes
+
+
+def _trade_group(trades) -> str:
+    if not trades:
+        return "0 trades"
+    wins = sum(t.pnl > 0 for t in trades)
+    mean = sum(t.pnl_pct for t in trades) / len(trades)
+    return f"{len(trades)} trades, {wins / len(trades):.1%} won, avg {mean:+.2%}"
+
+
+def overlay_lines(result: BacktestResult) -> list[str]:
+    """The overlay's own ledger: what each addition announcement led to,
+    and the overlay's trades split out from the strategy's.
+
+    The quick-exit count is the cost of the chosen rule — hold
+    additions until the strategy's exit — made visible rather than implied."""
+    if not result.config.index_overlay:
+        return []
+    additions = [t for t in result.trades if t.entry_reason == "index_addition"]
+    signals = [t for t in result.trades if t.entry_reason != "index_addition"]
+    removals = [t for t in result.trades if t.exit_reason == "index_removal"]
+    quick = [t for t in additions if t.exit_reason != "end_of_backtest" and t.bars_held <= 2]
+    outcomes = ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in sorted(result.overlay.items()))
+    return [
+        "",
+        "## Index-change overlay",
+        f"  Addition announcements: {outcomes or 'none in window'}",
+        f"  Bought on the announcement: {_trade_group(additions)}",
+        f"    of which sold within 2 bars by the strategy's exit: {len(quick)}",
+        f"  Strategy's own entries:     {_trade_group(signals)}",
+        f"  Sold on a removal announcement: {_trade_group(removals)}",
+    ]
 
 
 def render_summary(
@@ -200,6 +254,9 @@ def render_summary(
         f"  Peak {s.get('peak_date')} → trough {s.get('trough_date')} "
         f"→ recovery {s.get('recovery_date') or 'never'}",
         f"  Longest underwater: {s.get('longest_underwater_days')} days",
+    ]
+    lines += overlay_lines(result)
+    lines += [
         "",
         "## Caveats",
     ]
@@ -221,13 +278,14 @@ def write_artifacts(result: BacktestResult, out_dir: Path, universe_label: str =
         writer = csv.writer(fh)
         writer.writerow([
             "ticker", "entry_date", "entry_price", "shares", "exit_date", "exit_price",
-            "exit_reason", "pnl", "pnl_pct", "r_multiple", "bars_held",
+            "exit_reason", "pnl", "pnl_pct", "r_multiple", "bars_held", "entry_reason",
         ])
         for t in result.trades:
             writer.writerow([
                 t.ticker, t.entry_date, f"{t.entry_price:.4f}", f"{t.shares:.6f}",
                 t.exit_date, f"{t.exit_price:.4f}", t.exit_reason,
                 f"{t.pnl:.2f}", f"{t.pnl_pct:.6f}", f"{t.r_multiple:.4f}", t.bars_held,
+                t.entry_reason,
             ])
 
     (out_dir / "summary.md").write_text(render_summary(result, universe_label))

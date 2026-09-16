@@ -1,0 +1,716 @@
+# S&P 500 membership intervals, keyed by Yahoo ticker. Built by app/backtest/sp500_constituents.py on 2026-09-14
+# source: SP500_Historical_Constituents_2016_2025.xlsx (2016-2025), then sp500_events.csv effective dates
+# member_until is exclusive (the first day out); blank = still a member
+ticker,source_ticker,company,member_from,member_until,source
+A,A,Agilent Technologies,2016-01-01,,workbook
+AABA,AABA,Altaba (formerly Yahoo!),2016-01-01,2017-06-19,workbook
+AAL,AAL,American Airlines Group,2016-01-01,2024-09-23,workbook
+AAP,AAP,Advance Auto Parts,2016-01-01,2023-08-25,workbook
+AAPL,AAPL,Apple Inc.,2016-01-01,,workbook
+ABBV,ABBV,AbbVie,2016-01-01,,workbook
+ABMD,ABMD,Abiomed,2018-05-31,2022-12-22,workbook
+ABNB,ABNB,Airbnb,2023-09-18,,workbook
+ABT,ABT,Abbott Laboratories,2016-01-01,,workbook
+ACGL,ACGL,Arch Capital Group,2022-11-01,,workbook
+ACN,ACN,Accenture,2016-01-01,,workbook
+ADBE,ADBE,Adobe Inc.,2016-01-01,,workbook
+ADI,ADI,Analog Devices,2016-01-01,,workbook
+ADM,ADM,Archer Daniels Midland,2016-01-01,,workbook
+ADP,ADP,Automatic Data Processing,2016-01-01,,workbook
+ADS,ADS,Alliance Data Systems,2016-01-01,2020-06-22,workbook
+ADSK,ADSK,Autodesk,2016-01-01,,workbook
+ADT,ADT,ADT Corporation,2016-01-01,2016-05-03,workbook
+AEE,AEE,Ameren,2016-01-01,,workbook
+AEP,AEP,American Electric Power,2016-01-01,,workbook
+AES,AES,AES Corporation,2016-01-01,,workbook
+AET,AET,Aetna,2016-01-01,2018-12-03,workbook
+AFL,AFL,Aflac,2016-01-01,,workbook
+AGN,AGN,Allergan,2016-01-01,2020-05-12,workbook
+AIG,AIG,American International Group,2016-01-01,,workbook
+AIV,AIV,Apartment Investment & Management,2016-01-01,2020-12-21,workbook
+AIZ,AIZ,Assurant,2016-01-01,,workbook
+AJG,AJG,Arthur J. Gallagher & Co.,2016-05-31,,workbook
+AKAM,AKAM,Akamai Technologies,2016-01-01,,workbook
+ALB,ALB,Albemarle Corporation,2016-07-01,,workbook
+ALGN,ALGN,Align Technology,2017-06-19,,workbook
+ALK,ALK,Alaska Air Group,2016-05-13,2023-12-18,workbook
+ALL,ALL,Allstate,2016-01-01,,workbook
+ALLE,ALLE,Allegion,2016-01-01,,workbook
+ALXN,ALXN,Alexion Pharmaceuticals,2016-01-01,2021-07-21,workbook
+AMAT,AMAT,Applied Materials,2016-01-01,,workbook
+AMCR,AMCR,Amcor,2019-06-11,,workbook
+AMD,AMD,Advanced Micro Devices,2017-03-20,,workbook
+AME,AME,Ametek,2016-01-01,,workbook
+AMG,AMG,Affiliated Managers Group,2016-01-01,2019-12-23,workbook
+AMGN,AMGN,Amgen,2016-01-01,,workbook
+AMP,AMP,Ameriprise Financial,2016-01-01,,workbook
+AMT,AMT,American Tower,2016-01-01,,workbook
+AMTM,AMTM,Amentum,2024-09-30,2024-12-23,workbook
+AMZN,AMZN,Amazon,2016-01-01,,workbook
+AN,AN,AutoNation,2016-01-01,2017-08-08,workbook
+ANDV,ANDV,Andeavor,2016-01-01,2018-10-01,workbook
+ANET,ANET,Arista Networks,2018-08-28,,workbook
+ANSS,ANSS,Ansys,2017-06-19,2025-07-18,workbook
+AON,AON,Aon plc,2016-01-01,,workbook
+AOS,AOS,A. O. Smith,2017-07-26,,workbook
+APA,APA,APA Corporation,2016-01-01,,workbook
+APC,APC,Anadarko Petroleum,2016-01-01,2019-08-09,workbook
+APD,APD,Air Products,2016-01-01,,workbook
+APH,APH,Amphenol,2016-01-01,,workbook
+APO,APO,Apollo Global Management,2024-12-23,,workbook
+APP,APP,AppLovin,2025-09-22,,workbook
+APTV,APTV,Aptiv,2016-01-01,,workbook
+ARE,ARE,Alexandria Real Estate Equities,2017-03-20,,workbook
+ARES,ARES,Ares Management,2025-12-11,,workbook
+ARG,ARG,Airgas,2016-01-01,2016-05-23,workbook
+ATO,ATO,Atmos Energy,2019-02-15,,workbook
+ATVI,ATVI,Activision Blizzard,2016-01-01,2023-10-18,workbook
+AVB,AVB,AvalonBay Communities,2016-01-01,2026-08-18,workbook+sp500_events
+AVGO,AVGO,Broadcom,2016-01-01,,workbook
+AVY,AVY,Avery Dennison,2016-01-01,,workbook
+AWK,AWK,American Water Works,2016-03-04,,workbook
+AXON,AXON,Axon Enterprise,2023-05-04,,workbook
+AXP,AXP,American Express,2016-01-01,,workbook
+AYI,AYI,Acuity Brands,2016-05-03,2018-06-18,workbook
+AZO,AZO,AutoZone,2016-01-01,,workbook
+BA,BA,Boeing,2016-01-01,,workbook
+BAC,BAC,Bank of America,2016-01-01,,workbook
+BALL,BLL,Ball Corporation,2016-01-01,,workbook
+BAX,BAX,Baxter International,2016-01-01,,workbook
+BBBY,BBBY,Bed Bath & Beyond,2016-01-01,2017-07-26,workbook
+BBWI,LB,L Brands,2016-01-01,2024-10-01,workbook
+BBY,BBY,Best Buy,2016-01-01,,workbook
+BCR,BCR,C.R. Bard,2016-01-01,2017-12-29,workbook
+BDX,BDX,Becton Dickinson,2016-01-01,,workbook
+BEN,BEN,Franklin Resources,2016-01-01,,workbook
+BF-B,BF-B,Brown–Forman,2016-01-01,,workbook
+BG,BG,Bunge Global,2023-03-15,,workbook
+BHF,BHF,Brighthouse Financial,2017-08-08,2019-04-02,workbook
+BIIB,BIIB,Biogen,2016-01-01,,workbook
+BIO,BIO,Bio-Rad Laboratories,2020-06-22,2024-09-23,workbook
+BKNG,BKNG,Booking Holdings,2016-01-01,,workbook
+BKR,BHGE,Baker Hughes a GE Company,2016-01-01,,workbook
+BLDR,BLDR,Builders FirstSource,2023-12-18,,workbook
+BLK,BLK,BlackRock,2016-01-01,,workbook
+BMY,BMY,Bristol Myers Squibb,2016-01-01,,workbook
+BNY,BK,BNY Mellon,2016-01-01,,workbook
+BR,BR,Broadridge Financial Solutions,2018-06-18,,workbook
+BRCM,BRCM,Broadcom Corporation,2016-01-01,2016-02-01,workbook
+BRK-B,BRK-B,Berkshire Hathaway,2016-01-01,,workbook
+BRO,BRO,Brown & Brown,2021-09-20,,workbook
+BSX,BSX,Boston Scientific,2016-01-01,,workbook
+BWA,BWA,BorgWarner,2016-01-01,2025-03-24,workbook
+BX,BX,Blackstone Inc.,2023-09-18,,workbook
+BXLT,BXLT,Baxalta,2016-01-01,2016-06-03,workbook
+BXP,BXP,"BXP, Inc.",2016-01-01,,workbook
+C,C,Citigroup,2016-01-01,,workbook
+CA,CA,CA Technologies,2016-01-01,2018-11-06,workbook
+CAG,CAG,Conagra Brands,2016-01-01,2026-06-30,workbook+sp500_events
+CAH,CAH,Cardinal Health,2016-01-01,,workbook
+CAM,CAM,Cameron International,2016-01-01,2016-04-04,workbook
+CARR,CARR,Carrier Global,2020-04-03,,workbook
+CASY,CASY,,2026-04-09,,sp500_events
+CAT,CAT,Caterpillar Inc.,2016-01-01,,workbook
+CB,CB,Chubb Limited,2016-01-01,,workbook
+CBOE,CBOE,Cboe Global Markets,2017-03-01,,workbook
+CBRE,CBRE,CBRE Group,2016-01-01,,workbook
+CCE,CCE,Coca-Cola Enterprises,2016-01-01,2016-05-31,workbook
+CCI,CCI,Crown Castle,2016-01-01,,workbook
+CCL,CCL,Carnival Corporation,2016-01-01,,workbook
+CDNS,CDNS,Cadence Design Systems,2017-09-18,,workbook
+CDW,CDW,CDW Corporation,2019-09-23,,workbook
+CE,CE,Celanese,2018-12-24,2025-03-24,workbook
+CEG,CEG,Constellation Energy,2022-02-02,,workbook
+CELG,CELG,Celgene,2016-01-01,2019-11-21,workbook
+CERN,CERN,Cerner,2016-01-01,2022-06-08,workbook
+CF,CF,CF Industries,2016-01-01,,workbook
+CFG,CFG,Citizens Financial Group,2016-02-01,,workbook
+CHD,CHD,Church & Dwight,2016-01-01,,workbook
+CHK,CHK,Chesapeake Energy,2016-01-01,2018-03-19,workbook
+CHRW,CHRW,C.H. Robinson,2016-01-01,,workbook
+CHTR,CHTR,Charter Communications,2016-09-08,,workbook
+CI,CI,Cigna,2016-01-01,,workbook
+CIEN,CIEN,,2026-02-09,,sp500_events
+CINF,CINF,Cincinnati Financial,2016-01-01,,workbook
+CL,CL,Colgate-Palmolive,2016-01-01,,workbook
+CLX,CLX,Clorox,2016-01-01,,workbook
+CMA,CMA,Comerica,2016-01-01,2024-06-24,workbook
+CMCSA,CMCSA,Comcast,2016-01-01,,workbook
+CME,CME,CME Group,2016-01-01,,workbook
+CMG,CMG,Chipotle Mexican Grill,2016-01-01,,workbook
+CMI,CMI,Cummins,2016-01-01,,workbook
+CMS,CMS,CMS Energy,2016-01-01,,workbook
+CNC,CNC,Centene Corporation,2016-03-30,,workbook
+CNP,CNP,CenterPoint Energy,2016-01-01,,workbook
+CNX,CNX,Consol Energy,2016-01-01,2016-03-04,workbook
+COF,COF,Capital One,2016-01-01,,workbook
+COHR,COHR,,2026-03-23,,sp500_events
+COIN,COIN,Coinbase,2025-05-19,,workbook
+COL,COL,Rockwell Collins,2016-01-01,2018-12-03,workbook
+COO,COO,Cooper Companies (The),2016-09-22,,workbook
+COP,COP,ConocoPhillips,2016-01-01,,workbook
+COR,ABC,AmerisourceBergen,2016-01-01,,workbook
+COST,COST,Costco,2016-01-01,,workbook
+COTY,COTY,Coty,2016-09-30,2020-09-21,workbook
+CPAY,FLT,FleetCor Technologies,2018-06-20,,workbook
+CPB,CPB,Campbell's,2016-01-01,2026-06-22,workbook+sp500_events
+CPGX,CPGX,Columbia Pipeline Group,2016-01-01,2016-07-05,workbook
+CPRI,KORS,Michael Kors Holdings,2016-01-01,2020-05-12,workbook
+CPRT,CPRT,Copart,2018-07-02,,workbook
+CPT,CPT,Camden Property Trust,2022-04-04,,workbook
+CRH,CRH,CRH plc,2025-12-22,,workbook
+CRL,CRL,Charles River Laboratories,2021-05-14,,workbook
+CRM,CRM,Salesforce,2016-01-01,,workbook
+CRWD,CRWD,CrowdStrike,2024-06-24,,workbook
+CSCO,CSCO,Cisco,2016-01-01,,workbook
+CSGP,CSGP,CoStar Group,2022-09-19,,workbook
+CSRA,CSRA,CSRA Inc.,2016-01-01,2018-04-04,workbook
+CSX,CSX,CSX Corporation,2016-01-01,,workbook
+CTAS,CTAS,Cintas,2016-01-01,,workbook
+CTLT,CTLT,Catalent,2020-09-21,2024-12-23,workbook
+CTRA,COG,Cabot Oil & Gas,2016-01-01,2026-05-07,workbook+sp500_events
+CTSH,CTSH,Cognizant,2016-01-01,,workbook
+CTVA,CTVA,Corteva,2019-06-03,,workbook
+CTXS,CTXS,Citrix Systems,2016-01-01,2022-10-03,workbook
+CVC,CVC,Cablevision Systems,2016-01-01,2016-06-22,workbook
+CVNA,CVNA,Carvana,2025-12-22,,workbook
+CVS,CVS,CVS Health,2016-01-01,,workbook
+CVX,CVX,Chevron Corporation,2016-01-01,,workbook
+CXO,CXO,Concho Resources,2016-02-22,2021-01-21,workbook
+CZR,CZR,Caesars Entertainment,2021-03-22,2025-09-22,workbook
+D,D,Dominion Energy,2016-01-01,,workbook
+DAL,DAL,Delta Air Lines,2016-01-01,,workbook
+DASH,DASH,DoorDash,2025-03-24,,workbook
+DAY,CDAY,Ceridian HCM,2021-09-20,2026-02-09,workbook+sp500_events
+DD,DD,DuPont,2016-01-01,,workbook
+DDOG,DDOG,Datadog,2025-07-09,,workbook
+DE,DE,Deere & Company,2016-01-01,,workbook
+DECK,DECK,Deckers Brands,2024-03-18,,workbook
+DELL,DELL,Dell Technologies,2024-09-23,,workbook
+DFS,DFS,Discover Financial,2016-01-01,2025-05-19,workbook
+DG,DG,Dollar General,2016-01-01,,workbook
+DGX,DGX,Quest Diagnostics,2016-01-01,,workbook
+DHI,DHI,D. R. Horton,2016-01-01,,workbook
+DHR,DHR,Danaher Corporation,2016-01-01,,workbook
+DIS,DIS,Walt Disney Company (The),2016-01-01,,workbook
+DISCK,DISCK,"Discovery, Inc. (Class C)",2016-01-01,2022-04-11,workbook
+DISH,DISH,Dish Network,2017-03-13,2023-06-20,workbook
+DLR,DLR,Digital Realty,2016-05-18,,workbook
+DLTR,DLTR,Dollar Tree,2016-01-01,,workbook
+DNB,DNB,Dun & Bradstreet,2016-01-01,2017-04-05,workbook
+DO,DO,Diamond Offshore Drilling,2016-01-01,2016-09-30,workbook
+DOC,HCP,"HCP, Inc.",2016-01-01,,workbook
+DOV,DOV,Dover Corporation,2016-01-01,,workbook
+DOW,DOW,Dow Inc.,2019-04-02,,workbook
+DPZ,DPZ,Domino's,2020-05-12,,workbook
+DRE,DRE,Duke Realty,2017-07-26,2022-10-03,workbook
+DRI,DRI,Darden Restaurants,2016-01-01,,workbook
+DTE,DTE,DTE Energy,2016-01-01,,workbook
+DUK,DUK,Duke Energy,2016-01-01,,workbook
+DVA,DVA,DaVita,2016-01-01,,workbook
+DVN,DVN,Devon Energy,2016-01-01,,workbook
+DXC,DXC,DXC Technology,2017-04-04,2023-10-03,workbook
+DXCM,DXCM,Dexcom,2020-05-12,,workbook
+EA,EA,Electronic Arts,2016-01-01,2026-08-05,workbook+sp500_events
+EBAY,EBAY,eBay Inc.,2016-01-01,,workbook
+ECHO,SATS,,2026-03-23,,sp500_events
+ECL,ECL,Ecolab,2016-01-01,,workbook
+ED,ED,Consolidated Edison,2016-01-01,,workbook
+EFX,EFX,Equifax,2016-01-01,,workbook
+EG,RE,Everest Re Group,2017-06-19,,workbook
+EIX,EIX,Edison International,2016-01-01,,workbook
+EL,EL,Estée Lauder Companies (The),2016-01-01,,workbook
+ELV,ANTM,Anthem,2016-01-01,,workbook
+EMC,EMC,EMC Corporation,2016-01-01,2016-09-08,workbook
+EME,EME,Emcor,2025-09-22,,workbook
+EMN,EMN,Eastman Chemical Co.,2016-01-01,2025-11-04,workbook
+EMR,EMR,Emerson Electric,2016-01-01,,workbook
+ENDP,ENDP,Endo International,2016-01-01,2017-03-02,workbook
+ENPH,ENPH,Enphase Energy,2021-01-07,2025-09-22,workbook
+EOG,EOG,EOG Resources,2016-01-01,,workbook
+EPAM,EPAM,EPAM Systems,2021-12-14,2026-06-02,workbook+sp500_events
+EQIX,EQIX,Equinix,2016-01-01,,workbook
+EQT,EQT,EQT Corporation,2016-01-01,2018-11-13,workbook
+EQT,EQT,EQT Corporation,2022-10-03,,workbook
+ERIE,ERIE,Erie Indemnity,2024-09-23,,workbook
+ES,ES,Eversource Energy,2016-01-01,,workbook
+ESRX,ESRX,Express Scripts,2016-01-01,2018-12-24,workbook
+ESS,ESS,Essex Property Trust,2016-01-01,,workbook
+ESV,ESV,Ensco,2016-01-01,2016-03-30,workbook
+ETFC,ETFC,E-Trade,2016-01-01,2020-10-07,workbook
+ETN,ETN,Eaton Corporation,2016-01-01,,workbook
+ETR,ETR,Entergy,2016-01-01,,workbook
+ETSY,ETSY,Etsy,2020-09-21,2024-09-23,workbook
+EVHC,EVHC,Envision Healthcare,2016-12-02,2018-10-11,workbook
+EVRG,EVRG,Evergy,2018-06-05,,workbook
+EW,EW,Edwards Lifesciences,2016-01-01,,workbook
+EXC,EXC,Exelon,2016-01-01,,workbook
+EXE,EXE,Expand Energy,2025-03-24,,workbook
+EXPD,EXPD,Expeditors International,2016-01-01,,workbook
+EXPE,EXPE,Expedia Group,2016-01-01,,workbook
+EXR,EXR,Extra Space Storage,2016-01-19,,workbook
+F,F,Ford Motor Company,2016-01-01,,workbook
+FANG,FANG,Diamondback Energy,2018-12-03,,workbook
+FAST,FAST,Fastenal,2016-01-01,,workbook
+FBHS,FBHS,Fortune Brands Home & Security,2016-06-22,2022-12-19,workbook
+FCX,FCX,Freeport-McMoRan,2016-01-01,,workbook
+FDS,FDS,FactSet,2021-12-20,,workbook
+FDX,FDX,FedEx,2016-01-01,,workbook
+FDXF,FDXF,,2026-06-01,,sp500_events
+FE,FE,FirstEnergy,2016-01-01,,workbook
+FERG,FERG,,2026-08-05,,sp500_events
+FFIV,FFIV,"F5, Inc.",2016-01-01,,workbook
+FICO,FICO,Fair Isaac,2023-03-20,,workbook
+FIS,FIS,Fidelity National Information Services,2016-01-01,,workbook
+FISV,FISV,Fiserv,2016-01-01,,workbook
+FITB,FITB,Fifth Third Bancorp,2016-01-01,,workbook
+FIX,FIX,Comfort Systems USA,2025-12-22,,workbook
+FL,FL,Foot Locker,2016-04-04,2019-08-09,workbook
+FLEX,FLEX,,2026-06-22,,sp500_events
+FLIR,FLIR,FLIR Systems,2016-01-01,2021-05-14,workbook
+FLR,FLR,Fluor Corporation,2016-01-01,2019-06-03,workbook
+FLS,FLS,Flowserve,2016-01-01,2021-03-22,workbook
+FMC,FMC,FMC Corporation,2016-01-01,2025-03-24,workbook
+FOSL,FOSL,Fossil Group,2016-01-01,2016-01-05,workbook
+FOX,FOX,Fox Corporation (Class B),2016-01-01,,workbook
+FOXA,FOXA,Fox Corporation (Class A),2016-01-01,,workbook
+FRC,FRC,First Republic Bank,2019-01-02,2023-05-04,workbook
+FRT,FRT,Federal Realty Investment Trust,2016-02-01,,workbook
+FSLR,FSLR,First Solar,2016-01-01,2017-03-20,workbook
+FSLR,FSLR,First Solar,2022-12-19,,workbook
+FTI,FTI,TechnipFMC,2016-01-01,2021-02-12,workbook
+FTNT,FTNT,Fortinet,2018-10-11,,workbook
+FTR,FTR,Frontier Communications,2016-01-01,2017-03-20,workbook
+FTV,FTV,Fortive,2016-07-05,,workbook
+GAS,GAS,AGL Resources,2016-01-01,2016-07-01,workbook
+GD,GD,General Dynamics,2016-01-01,,workbook
+GDDY,GDDY,GoDaddy,2024-06-24,,workbook
+GE,GE,GE Aerospace,2016-01-01,,workbook
+GEHC,GEHC,GE HealthCare,2023-01-04,,workbook
+GEN,SYMC,Symantec,2016-01-01,,workbook
+GEV,GEV,GE Vernova,2024-04-02,,workbook
+GGP,GGP,GGP Inc.,2016-01-01,2018-08-28,workbook
+GILD,GILD,Gilead Sciences,2016-01-01,,workbook
+GIS,GIS,General Mills,2016-01-01,,workbook
+GL,TMK,Torchmark,2016-01-01,,workbook
+GLW,GLW,Corning Inc.,2016-01-01,,workbook
+GM,GM,General Motors,2016-01-01,,workbook
+GMCR,GMCR,Keurig Green Mountain,2016-01-01,2016-03-07,workbook
+GME,GME,GameStop,2016-01-01,2016-04-25,workbook
+GNRC,GNRC,Generac,2021-03-22,,workbook
+GOOG,GOOG,Alphabet Inc. (Class C),2016-01-01,,workbook
+GOOGL,GOOGL,Alphabet Inc. (Class A),2016-01-01,,workbook
+GPC,GPC,Genuine Parts Company,2016-01-01,,workbook
+GPN,GPN,Global Payments,2016-04-25,,workbook
+GPS,GPS,Gap,2016-01-01,2022-02-03,workbook
+GRMN,GRMN,Garmin,2016-01-01,,workbook
+GS,GS,Goldman Sachs,2016-01-01,,workbook
+GT,GT,Goodyear Tire & Rubber,2016-01-01,2019-02-27,workbook
+GWW,GWW,W. W. Grainger,2016-01-01,,workbook
+HAL,HAL,Halliburton,2016-01-01,,workbook
+HAR,HAR,Harman International,2016-01-01,2017-03-16,workbook
+HAS,HAS,Hasbro,2016-01-01,,workbook
+HBAN,HBAN,Huntington Bancshares,2016-01-01,,workbook
+HBI,HBI,Hanesbrands,2016-01-01,2021-12-20,workbook
+HCA,HCA,HCA Healthcare,2016-01-01,,workbook
+HD,HD,Home Depot (The),2016-01-01,,workbook
+HES,HES,Hess Corporation,2016-01-01,2025-07-23,workbook
+HFC,HFC,HollyFrontier,2018-06-18,2021-06-04,workbook
+HIG,HIG,Hartford (The),2016-01-01,,workbook
+HII,HII,Huntington Ingalls Industries,2018-01-03,,workbook
+HLT,HLT,Hilton Worldwide,2017-06-19,,workbook
+HOG,HOG,Harley-Davidson,2016-01-01,2020-06-22,workbook
+HOLX,HOLX,Hologic,2016-03-30,2026-04-09,workbook+sp500_events
+HON,HON,Honeywell Technologies,2016-01-01,,workbook
+HONA,HONA,,2026-06-29,,sp500_events
+HOOD,HOOD,Robinhood Markets,2025-09-22,,workbook
+HOT,HOT,Starwood Hotels & Resorts,2016-01-01,2016-09-22,workbook
+HP,HP,Helmerich & Payne,2016-01-01,2020-05-22,workbook
+HPE,HPE,Hewlett Packard Enterprise,2016-01-01,,workbook
+HPQ,HPQ,HP Inc.,2016-01-01,,workbook
+HRB,HRB,H&R Block,2016-01-01,2020-09-21,workbook
+HRL,HRL,Hormel Foods,2016-01-01,,workbook
+HSIC,HSIC,Henry Schein,2016-01-01,,workbook
+HST,HST,Host Hotels & Resorts,2016-01-01,,workbook
+HSY,HSY,Hershey Company (The),2016-01-01,,workbook
+HUBB,HUBB,Hubbell Incorporated,2023-10-18,,workbook
+HUM,HUM,Humana,2016-01-01,,workbook
+HWM,ARNC,Arconic,2016-01-01,,workbook
+IBKR,IBKR,Interactive Brokers,2025-08-28,,workbook
+IBM,IBM,IBM,2016-01-01,,workbook
+ICE,ICE,Intercontinental Exchange,2016-01-01,,workbook
+IDXX,IDXX,Idexx Laboratories,2017-01-05,,workbook
+IEX,IEX,IDEX Corporation,2019-08-09,,workbook
+IFF,IFF,International Flavors & Fragrances,2016-01-01,,workbook
+ILMN,ILMN,"Illumina, Inc.",2016-01-01,2024-06-24,workbook
+INCY,INCY,Incyte,2017-02-28,,workbook
+INFO,INFO,IHS Markit,2017-06-02,2022-03-02,workbook
+INTC,INTC,Intel,2016-01-01,,workbook
+INTU,INTU,Intuit,2016-01-01,,workbook
+INVH,INVH,Invitation Homes,2022-09-19,,workbook
+IP,IP,International Paper,2016-01-01,,workbook
+IPG,IPG,Interpublic Group,2016-01-01,2025-11-28,workbook
+IPGP,IPGP,IPG Photonics,2018-03-07,2022-06-21,workbook
+IQV,IQV,IQVIA Holdings,2017-08-29,,workbook
+IR,IR,Ingersoll Rand,2020-03-02,,workbook
+IRM,IRM,Iron Mountain,2016-01-01,,workbook
+ISRG,ISRG,Intuitive Surgical,2016-01-01,,workbook
+IT,IT,Gartner,2017-04-05,,workbook
+ITW,ITW,Illinois Tool Works,2016-01-01,,workbook
+IVZ,IVZ,Invesco,2016-01-01,,workbook
+J,JEC,Jacobs Engineering Group,2016-01-01,,workbook
+JBHT,JBHT,J.B. Hunt,2016-01-01,,workbook
+JBL,JBL,Jabil,2023-12-18,,workbook
+JCI,JCI,Johnson Controls,2016-01-01,,workbook
+JEF,JEF,Jefferies Financial Group,2016-01-01,2019-09-26,workbook
+JKHY,JKHY,Jack Henry & Associates,2018-11-13,,workbook
+JNJ,JNJ,Johnson & Johnson,2016-01-01,,workbook
+JNPR,JNPR,Juniper Networks,2016-01-01,2025-07-09,workbook
+JPM,JPM,JPMorgan Chase,2016-01-01,,workbook
+JWN,JWN,Nordstrom,2016-01-01,2020-06-22,workbook
+K,K,Kellanova,2016-01-01,2025-12-11,workbook
+KDP,KDP,Keurig Dr Pepper,2016-01-01,2018-07-02,workbook
+KDP,KDP,Keurig Dr Pepper,2022-06-21,,workbook
+KEY,KEY,KeyCorp,2016-01-01,,workbook
+KEYS,KEYS,Keysight Technologies,2018-11-06,,workbook
+KHC,KHC,Kraft Heinz,2016-01-01,,workbook
+KIM,KIM,Kimco Realty,2016-01-01,,workbook
+KKR,KKR,KKR & Co.,2024-06-24,,workbook
+KLAC,KLAC,KLA Corporation,2016-01-01,,workbook
+KMB,KMB,Kimberly-Clark,2016-01-01,,workbook
+KMI,KMI,Kinder Morgan,2016-01-01,,workbook
+KMX,KMX,CarMax,2016-01-01,2025-10-31,workbook
+KO,KO,Coca-Cola Company (The),2016-01-01,,workbook
+KR,KR,Kroger,2016-01-01,,workbook
+KSS,KSS,Kohl's,2016-01-01,2020-09-21,workbook
+KSU,KSU,Kansas City Southern,2016-01-01,2021-12-14,workbook
+KVUE,KVUE,Kenvue,2023-08-25,,workbook
+L,L,Loews Corporation,2016-01-01,,workbook
+LDOS,LDOS,Leidos,2019-08-09,,workbook
+LEG,LEG,Leggett & Platt,2016-01-01,2021-12-20,workbook
+LEN,LEN,Lennar,2016-01-01,,workbook
+LH,LH,Labcorp,2016-01-01,,workbook
+LHX,HRS,Harris Corporation,2016-01-01,,workbook
+LII,LII,Lennox International,2024-12-23,,workbook
+LIN,PX,Praxair,2016-01-01,,workbook
+LITE,LITE,,2026-03-23,,sp500_events
+LKQ,LKQ,LKQ Corporation,2016-05-23,2025-12-22,workbook
+LLL,LLL,L3 Technologies,2016-01-01,2019-07-01,workbook
+LLTC,LLTC,Linear Technology,2016-01-01,2017-03-13,workbook
+LLY,LLY,Lilly (Eli),2016-01-01,,workbook
+LM,LM,Legg Mason,2016-01-01,2016-12-02,workbook
+LMT,LMT,Lockheed Martin,2016-01-01,,workbook
+LNC,LNC,Lincoln National Corporation,2016-01-01,2023-09-18,workbook
+LNT,LNT,Alliant Energy,2016-07-01,,workbook
+LOW,LOW,Lowe's,2016-01-01,,workbook
+LRCX,LRCX,Lam Research,2016-01-01,,workbook
+LULU,LULU,Lululemon Athletica,2023-10-18,,workbook
+LUMN,CTL,CenturyLink,2016-01-01,2023-03-20,workbook
+LUV,LUV,Southwest Airlines,2016-01-01,,workbook
+LVLT,LVLT,Level 3 Communications,2016-01-01,2017-10-13,workbook
+LVS,LVS,Las Vegas Sands,2019-10-03,,workbook
+LW,LW,Lamb Weston,2018-12-03,2026-03-23,workbook+sp500_events
+LYB,LYB,LyondellBasell,2016-01-01,,workbook
+LYV,LYV,Live Nation Entertainment,2019-12-23,,workbook
+M,M,Macy's,2016-01-01,2020-04-06,workbook
+MA,MA,Mastercard,2016-01-01,,workbook
+MAA,MAA,Mid-America Apartment Communities,2016-12-02,,workbook
+MAC,MAC,Macerich,2016-01-01,2019-12-23,workbook
+MAR,MAR,Marriott International,2016-01-01,,workbook
+MAS,MAS,Masco,2016-01-01,,workbook
+MAT,MAT,Mattel,2016-01-01,2019-06-07,workbook
+MCD,MCD,McDonald's,2016-01-01,,workbook
+MCHP,MCHP,Microchip Technology,2016-01-01,,workbook
+MCK,MCK,McKesson Corporation,2016-01-01,,workbook
+MCO,MCO,Moody's Corporation,2016-01-01,,workbook
+MDLZ,MDLZ,Mondelez International,2016-01-01,,workbook
+MDT,MDT,Medtronic,2016-01-01,,workbook
+MET,MET,MetLife,2016-01-01,,workbook
+META,FB,Facebook,2016-01-01,,workbook
+MGM,MGM,MGM Resorts,2017-07-26,,workbook
+MHK,MHK,Mohawk Industries,2016-01-01,2025-12-22,workbook
+MJN,MJN,Mead Johnson Nutrition,2016-01-01,2017-06-19,workbook
+MKC,MKC,McCormick & Company,2016-01-01,,workbook
+MKTX,MKTX,MarketAxess,2019-07-01,2025-09-22,workbook
+MLM,MLM,Martin Marietta Materials,2016-01-01,,workbook
+MMM,MMM,3M,2016-01-01,,workbook
+MNK,MNK,Mallinckrodt,2016-01-01,2017-07-26,workbook
+MNST,MNST,Monster Beverage,2016-01-01,,workbook
+MO,MO,Altria,2016-01-01,,workbook
+MOH,MOH,Molina Healthcare,2022-03-02,2026-03-23,workbook+sp500_events
+MON,MON,Monsanto,2016-01-01,2018-06-07,workbook
+MOS,MOS,Mosaic Company (The),2016-01-01,,workbook
+MPC,MPC,Marathon Petroleum,2016-01-01,,workbook
+MPWR,MPWR,Monolithic Power Systems,2021-02-12,,workbook
+MRK,MRK,Merck & Co.,2016-01-01,,workbook
+MRNA,MRNA,Moderna,2021-07-21,,workbook
+MRO,MRO,Marathon Oil,2016-01-01,2024-11-26,workbook
+MRSH,MMC,Marsh & McLennan Companies,2016-01-01,,workbook
+MRVL,MRVL,,2026-06-22,,sp500_events
+MS,MS,Morgan Stanley,2016-01-01,,workbook
+MSCI,MSCI,MSCI,2018-04-04,,workbook
+MSFT,MSFT,Microsoft,2016-01-01,,workbook
+MSI,MSI,Motorola Solutions,2016-01-01,,workbook
+MTB,MTB,M&T Bank,2016-01-01,,workbook
+MTCH,MTCH,Match Group,2021-09-20,2026-03-23,workbook+sp500_events
+MTD,MTD,Mettler Toledo,2016-09-06,,workbook
+MU,MU,Micron Technology,2016-01-01,,workbook
+MUR,MUR,Murphy Oil,2016-01-01,2017-07-26,workbook
+MXIM,MXIM,Maxim Integrated,2018-12-03,2021-08-30,workbook
+NAVI,NAVI,Navient,2016-01-01,2018-06-05,workbook
+NBL,NBL,Noble Energy,2016-01-01,2020-10-12,workbook
+NCLH,NCLH,Norwegian Cruise Line Holdings,2017-10-13,,workbook
+NDAQ,NDAQ,"Nasdaq, Inc.",2016-01-01,,workbook
+NDSN,NDSN,Nordson Corporation,2022-02-15,,workbook
+NEE,NEE,NextEra Energy,2016-01-01,,workbook
+NEM,NEM,Newmont,2016-01-01,,workbook
+NFLX,NFLX,Netflix,2016-01-01,,workbook
+NFX,NFX,Newfield Exploration,2016-01-01,2019-02-15,workbook
+NI,NI,NiSource,2016-01-01,,workbook
+NKE,NKE,"Nike, Inc.",2016-01-01,,workbook
+NKTR,NKTR,Nektar Therapeutics,2018-03-19,2019-10-03,workbook
+NLSN,NLSN,Nielsen Holdings,2016-01-01,2022-10-12,workbook
+NOC,NOC,Northrop Grumman,2016-01-01,,workbook
+NOV,NOV,NOV Inc.,2016-01-01,2021-09-20,workbook
+NOW,NOW,ServiceNow,2019-11-21,,workbook
+NRG,NRG,NRG Energy,2016-01-01,,workbook
+NSC,NSC,Norfolk Southern,2016-01-01,,workbook
+NTAP,NTAP,NetApp,2016-01-01,,workbook
+NTRS,NTRS,Northern Trust,2016-01-01,,workbook
+NUE,NUE,Nucor,2016-01-01,,workbook
+NVDA,NVDA,Nvidia,2016-01-01,,workbook
+NVR,NVR,"NVR, Inc.",2019-09-26,,workbook
+NWL,NWL,Newell Brands,2016-01-01,2023-09-18,workbook
+NWS,NWS,News Corp (Class B),2016-01-01,,workbook
+NWSA,NWSA,News Corp (Class A),2016-01-01,,workbook
+NXPI,NXPI,NXP Semiconductors,2021-03-22,,workbook
+O,O,Realty Income,2016-01-01,,workbook
+ODFL,ODFL,Old Dominion,2019-12-09,,workbook
+OGN,OGN,Organon & Co.,2021-06-03,2023-10-18,workbook
+OI,OI,Owens-Illinois,2016-01-01,2016-12-02,workbook
+OKE,OKE,Oneok,2016-01-01,,workbook
+OMC,OMC,Omnicom Group,2016-01-01,,workbook
+ON,ON,ON Semiconductor,2022-06-21,,workbook
+ORCL,ORCL,Oracle Corporation,2016-01-01,,workbook
+ORLY,ORLY,O'Reilly Automotive,2016-01-01,,workbook
+OTIS,OTIS,Otis Worldwide,2020-04-03,,workbook
+OXY,OXY,Occidental Petroleum,2016-01-01,,workbook
+PANW,PANW,Palo Alto Networks,2023-06-20,,workbook
+PAYC,PAYC,Paycom,2020-01-28,2026-03-23,workbook+sp500_events
+PAYX,PAYX,Paychex,2016-01-01,,workbook
+PBCT,PBCT,People's United Financial,2016-01-01,2022-04-04,workbook
+PBI,PBI,Pitney Bowes,2016-01-01,2017-03-01,workbook
+PCAR,PCAR,Paccar,2016-01-01,,workbook
+PCG,PCG,PG&E Corporation,2016-01-01,2019-01-18,workbook
+PCG,PCG,PG&E Corporation,2022-10-03,,workbook
+PCL,PCL,Plum Creek Timber,2016-01-01,2016-02-22,workbook
+PCP,PCP,Precision Castparts Corporation,2016-01-01,2016-02-01,workbook
+PDCO,PDCO,Patterson Companies,2016-01-01,2018-03-19,workbook
+PEG,PEG,Public Service Enterprise Group,2016-01-01,,workbook
+PENN,PENN,Penn Entertainment,2021-03-22,2022-09-19,workbook
+PEP,PEP,PepsiCo,2016-01-01,,workbook
+PFE,PFE,Pfizer,2016-01-01,,workbook
+PFG,PFG,Principal Financial Group,2016-01-01,,workbook
+PG,PG,Procter & Gamble,2016-01-01,,workbook
+PGR,PGR,Progressive Corporation,2016-01-01,,workbook
+PH,PH,Parker Hannifin,2016-01-01,,workbook
+PHM,PHM,PulteGroup,2016-01-01,,workbook
+PKG,PKG,Packaging Corporation of America,2017-07-26,,workbook
+PLD,PLD,Prologis,2016-01-01,,workbook
+PLTR,PLTR,Palantir Technologies,2024-09-23,,workbook
+PM,PM,Philip Morris International,2016-01-01,,workbook
+PNC,PNC,PNC Financial Services,2016-01-01,,workbook
+PNR,PNR,Pentair,2016-01-01,,workbook
+PNW,PNW,Pinnacle West Capital,2016-01-01,,workbook
+PODD,PODD,Insulet Corporation,2023-03-15,,workbook
+POM,POM,Pepco Holdings,2016-01-01,2016-03-30,workbook
+POOL,POOL,Pool Corporation,2020-10-07,2026-06-22,workbook+sp500_events
+PPG,PPG,PPG Industries,2016-01-01,,workbook
+PPL,PPL,PPL Corporation,2016-01-01,,workbook
+PRGO,PRGO,Perrigo,2016-01-01,2021-09-20,workbook
+PRU,PRU,Prudential Financial,2016-01-01,,workbook
+PSA,PSA,Public Storage,2016-01-01,,workbook
+PSKY,CBS,CBS Corporation,2016-01-01,,workbook
+PSX,PSX,Phillips 66,2016-01-01,,workbook
+PTC,PTC,PTC Inc.,2021-04-20,,workbook
+PVH,PVH,PVH,2016-01-01,2022-09-19,workbook
+PWR,PWR,Quanta Services,2016-01-01,,workbook
+PXD,PXD,Pioneer Natural Resources,2016-01-01,2024-05-08,workbook
+PYPL,PYPL,PayPal,2016-01-01,,workbook
+Q,Q,Qnity Electronics,2025-11-03,,workbook
+QCOM,QCOM,Qualcomm,2016-01-01,,workbook
+QRVO,QRVO,Qorvo,2016-01-01,2024-12-23,workbook
+R,R,Ryder System,2016-01-01,2017-06-19,workbook
+RAI,RAI,Reynolds American,2016-01-01,2017-07-26,workbook
+RCL,RCL,Royal Caribbean Group,2016-01-01,,workbook
+RDDT,RDDT,,2026-08-18,,sp500_events
+REG,REG,Regency Centers,2017-03-02,,workbook
+REGN,REGN,Regeneron Pharmaceuticals,2016-01-01,,workbook
+RF,RF,Regions Financial Corporation,2016-01-01,,workbook
+RHI,RHI,Robert Half,2016-01-01,2024-06-24,workbook
+RHT,RHT,Red Hat,2016-01-01,2019-07-15,workbook
+RIG,RIG,Transocean,2016-01-01,2017-07-26,workbook
+RJF,RJF,Raymond James Financial,2017-03-20,,workbook
+RL,RL,Ralph Lauren Corporation,2016-01-01,,workbook
+RMD,RMD,ResMed|,2017-07-26,,workbook
+ROK,ROK,Rockwell Automation,2016-01-01,,workbook
+ROL,ROL,"Rollins, Inc.",2018-10-01,,workbook
+ROP,ROP,Roper Technologies,2016-01-01,,workbook
+ROST,ROST,Ross Stores,2016-01-01,,workbook
+RRC,RRC,Range Resources,2016-01-01,2018-06-18,workbook
+RSG,RSG,Republic Services,2016-01-01,,workbook
+RTN,RTN,Raytheon Company,2016-01-01,2020-04-06,workbook
+RTX,UTX,United Technologies,2016-01-01,,workbook
+RVTY,PKI,PerkinElmer,2016-01-01,,workbook
+SBAC,SBAC,SBA Communications,2017-09-01,,workbook
+SBNY,SBNY,Signature Bank,2021-12-20,2023-03-15,workbook
+SBUX,SBUX,Starbucks,2016-01-01,,workbook
+SCG,SCG,SCANA,2016-01-01,2019-01-02,workbook
+SCHW,SCHW,Charles Schwab Corporation,2016-01-01,,workbook
+SE,SE,Spectra Energy,2016-01-01,2017-02-28,workbook
+SEDG,SEDG,SolarEdge,2021-12-20,2023-12-18,workbook
+SEE,SEE,Sealed Air,2016-01-01,2023-12-18,workbook
+SHW,SHW,Sherwin-Williams,2016-01-01,,workbook
+SIG,SIG,Signet Jewelers,2016-01-01,2018-03-19,workbook
+SIVB,SIVB,SVB Financial Group,2018-03-19,2023-03-15,workbook
+SJM,SJM,J.M. Smucker Company (The),2016-01-01,,workbook
+SLB,SLB,Schlumberger,2016-01-01,,workbook
+SLG,SLG,SL Green Realty,2016-01-01,2021-03-22,workbook
+SMCI,SMCI,Supermicro,2024-03-18,,workbook
+SNA,SNA,Snap-on,2016-01-01,,workbook
+SNDK,SNDK,Sandisk,2016-01-01,2016-05-13,workbook
+SNDK,SNDK,Sandisk,2025-11-28,,workbook
+SNI,SNI,Scripps Networks Interactive,2016-01-01,2018-03-07,workbook
+SNPS,SNPS,Synopsys,2017-03-16,,workbook
+SO,SO,Southern Company,2016-01-01,,workbook
+SOLS,SOLS,Solstice Advanced Materials,2025-10-30,2025-12-22,workbook
+SOLV,SOLV,Solventum,2024-04-01,,workbook
+SPG,SPG,Simon Property Group,2016-01-01,,workbook
+SPGI,SPGI,S&P Global,2016-01-01,,workbook
+SPLS,SPLS,Staples,2016-01-01,2017-09-18,workbook
+SRCL,SRCL,Stericycle,2016-01-01,2018-12-03,workbook
+SRE,SRE,Sempra,2016-01-01,,workbook
+STE,STE,Steris,2019-12-23,,workbook
+STI,STI,SunTrust Banks,2016-01-01,2019-12-09,workbook
+STJ,STJ,St. Jude Medical,2016-01-01,2017-01-05,workbook
+STLD,STLD,Steel Dynamics,2022-12-22,,workbook
+STT,STT,State Street Corporation,2016-01-01,,workbook
+STX,STX,Seagate Technology,2016-01-01,,workbook
+STZ,STZ,Constellation Brands,2016-01-01,,workbook
+SW,WRK,WestRock,2016-01-01,,workbook
+SWK,SWK,Stanley Black & Decker,2016-01-01,,workbook
+SWKS,SWKS,Skyworks Solutions,2016-01-01,,workbook
+SWN,SWN,Southwestern Energy,2016-01-01,2017-04-04,workbook
+SYF,SYF,Synchrony Financial,2016-01-01,,workbook
+SYK,SYK,Stryker Corporation,2016-01-01,,workbook
+SYY,SYY,Sysco,2016-01-01,,workbook
+T,T,AT&T,2016-01-01,,workbook
+TAP,TAP,Molson Coors Beverage Company,2016-01-01,,workbook
+TDC,TDC,Teradata,2016-01-01,2017-06-19,workbook
+TDG,TDG,TransDigm Group,2016-06-03,,workbook
+TDY,TDY,Teledyne Technologies,2020-06-22,,workbook
+TE,TE,TECO Energy,2016-01-01,2016-07-01,workbook
+TECH,TECH,Bio-Techne,2021-08-30,,workbook
+TEL,TEL,TE Connectivity,2016-01-01,,workbook
+TER,TER,Teradyne,2020-09-21,,workbook
+TFC,BBT,BB&T,2016-01-01,,workbook
+TFX,TFX,Teleflex,2019-01-18,2025-03-24,workbook
+TGNA,TGNA,Tegna,2016-01-01,2017-06-02,workbook
+TGT,TGT,Target Corporation,2016-01-01,,workbook
+THC,THC,Tenet Healthcare,2016-01-01,2016-04-18,workbook
+TIF,TIF,Tiffany & Co.,2016-01-01,2021-01-07,workbook
+TJX,TJX,TJX Companies,2016-01-01,,workbook
+TKO,TKO,TKO Group Holdings,2025-03-24,,workbook
+TMO,TMO,Thermo Fisher Scientific,2016-01-01,,workbook
+TMUS,TMUS,T-Mobile US,2019-07-15,,workbook
+TNL,WYND,Wyndham Destinations,2016-01-01,2018-05-31,workbook
+TPL,TPL,Texas Pacific Land Corporation,2024-11-26,,workbook
+TPR,TPR,"Tapestry, Inc.",2016-01-01,,workbook
+TRGP,TRGP,Targa Resources,2022-10-12,,workbook
+TRIP,TRIP,TripAdvisor,2016-01-01,2019-12-23,workbook
+TRMB,TRMB,Trimble Inc.,2021-01-21,,workbook
+TROW,TROW,T. Rowe Price,2016-01-01,,workbook
+TRV,TRV,Travelers Companies (The),2016-01-01,,workbook
+TSCO,TSCO,Tractor Supply,2016-01-01,,workbook
+TSLA,TSLA,"Tesla, Inc.",2020-12-21,,workbook
+TSN,TSN,Tyson Foods,2016-01-01,,workbook
+TSS,TSS,Total System Services,2016-01-01,2019-09-23,workbook
+TT,IR,Ingersoll Rand,2016-01-01,,workbook
+TTD,TTD,Trade Desk (The),2025-07-18,,workbook
+TTWO,TTWO,Take-Two Interactive,2018-03-19,,workbook
+TWC,TWC,Time Warner Cable,2016-01-01,2016-05-18,workbook
+TWTR,TWTR,Twitter,2018-06-07,2022-11-01,workbook
+TWX,TWX,Time Warner,2016-01-01,2018-06-20,workbook
+TXN,TXN,Texas Instruments,2016-01-01,,workbook
+TXT,TXT,Textron,2016-01-01,,workbook
+TYL,TYL,Tyler Technologies,2020-06-22,,workbook
+UA,UA,Under Armour (Class C),2016-04-08,2022-06-21,workbook
+UAA,UAA,Under Armour (Class A),2016-01-01,2022-06-21,workbook
+UAL,UAL,United Airlines Holdings,2016-01-01,,workbook
+UBER,UBER,Uber,2023-12-18,,workbook
+UDR,UDR,"UDR, Inc.",2016-03-07,,workbook
+UHS,UHS,Universal Health Services,2016-01-01,,workbook
+ULTA,ULTA,Ulta Beauty,2016-04-18,,workbook
+UNH,UNH,UnitedHealth Group,2016-01-01,,workbook
+UNM,UNM,Unum,2016-01-01,2021-09-20,workbook
+UNP,UNP,Union Pacific Corporation,2016-01-01,,workbook
+UPS,UPS,United Parcel Service,2016-01-01,,workbook
+URBN,URBN,Urban Outfitters,2016-01-01,2017-03-20,workbook
+URI,URI,United Rentals,2016-01-01,,workbook
+USB,USB,U.S. Bancorp,2016-01-01,,workbook
+V,V,Visa Inc.,2016-01-01,,workbook
+VAR,VAR,Varian Medical Systems,2016-01-01,2021-04-20,workbook
+VEEV,VEEV,,2026-05-07,,sp500_events
+VFC,VFC,VF Corporation,2016-01-01,2024-04-03,workbook
+VIAB,VIAB,Viacom,2016-01-01,2019-12-05,workbook
+VICI,VICI,Vici Properties,2022-06-08,,workbook
+VLO,VLO,Valero Energy,2016-01-01,,workbook
+VLTO,VLTO,Veralto,2023-10-02,,workbook
+VMC,VMC,Vulcan Materials Company,2016-01-01,,workbook
+VMRK,EQR,Equity Residential,2016-01-01,,workbook
+VNO,VNO,Vornado Realty Trust,2016-01-01,2023-01-05,workbook
+VNT,VNT,Vontier,2020-10-09,2021-03-22,workbook
+VRSK,VRSK,Verisk Analytics,2016-01-01,,workbook
+VRSN,VRSN,Verisign,2016-01-01,,workbook
+VRT,VRT,,2026-03-23,,sp500_events
+VRTX,VRTX,Vertex Pharmaceuticals,2016-01-01,,workbook
+VST,VST,Vistra Corp.,2024-05-08,,workbook
+VTR,VTR,Ventas,2016-01-01,,workbook
+VTRS,MYL,Mylan,2016-01-01,,workbook
+VZ,VZ,Verizon,2016-01-01,,workbook
+WAB,WAB,Wabtec,2019-02-27,,workbook
+WAT,WAT,Waters Corporation,2016-01-01,,workbook
+WBA,WBA,Walgreens Boots Alliance,2016-01-01,2025-08-28,workbook
+WBD,DISCA,"Discovery, Inc. (Class A)",2016-01-01,,workbook
+WCG,WCG,WellCare,2018-09-14,2020-01-28,workbook
+WDAY,WDAY,"Workday, Inc.",2024-12-23,,workbook
+WDC,WDC,Western Digital,2016-01-01,,workbook
+WEC,WEC,WEC Energy Group,2016-01-01,,workbook
+WELL,WELL,Welltower,2016-01-01,,workbook
+WFC,WFC,Wells Fargo,2016-01-01,,workbook
+WFM,WFM,Whole Foods Market,2016-01-01,2017-08-29,workbook
+WHR,WHR,Whirlpool Corporation,2016-01-01,2024-03-18,workbook
+WM,WM,Waste Management,2016-01-01,,workbook
+WMB,WMB,Williams Companies,2016-01-01,,workbook
+WMT,WMT,Walmart,2016-01-01,,workbook
+WRB,WRB,W. R. Berkley Corporation,2019-12-05,,workbook
+WSM,WSM,"Williams-Sonoma, Inc.",2025-03-24,,workbook
+WST,WST,West Pharmaceutical Services,2020-05-22,,workbook
+WTW,WLTW,Willis Towers Watson,2016-01-05,,workbook
+WU,WU,Western Union,2016-01-01,2021-12-20,workbook
+WY,WY,Weyerhaeuser,2016-01-01,,workbook
+WYNN,WYNN,Wynn Resorts,2016-01-01,,workbook
+XEC,XEC,Cimarex Energy,2016-01-01,2020-03-02,workbook
+XEL,XEL,Xcel Energy,2016-01-01,,workbook
+XL,XL,XL Group,2016-01-01,2018-09-14,workbook
+XLNX,XLNX,Xilinx,2016-01-01,2022-02-15,workbook
+XOM,XOM,ExxonMobil,2016-01-01,,workbook
+XRAY,XRAY,Dentsply Sirona,2016-01-01,2024-04-03,workbook
+XRX,XRX,Xerox,2016-01-01,2021-03-22,workbook
+XYL,XYL,Xylem Inc.,2016-01-01,,workbook
+XYZ,XYZ,"Block, Inc.",2025-07-23,,workbook
+YUM,YUM,Yum! Brands,2016-01-01,,workbook
+ZBH,ZBH,Zimmer Biomet,2016-01-01,,workbook
+ZBRA,ZBRA,Zebra Technologies,2019-12-23,,workbook
+ZION,ZION,Zions Bancorporation,2016-01-01,2024-03-18,workbook
+ZTS,ZTS,Zoetis,2016-01-01,,workbook

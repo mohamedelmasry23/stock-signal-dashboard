@@ -2,3 +2,4 @@
 #   pip3 install -r requirements.txt -r requirements-dev.txt
 pytest
 httpx      # required by fastapi.testclient.TestClient
+openpyxl   # only to rebuild data/universes/sp500_constituents.csv from the workbook

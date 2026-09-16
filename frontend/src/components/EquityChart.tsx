@@ -29,14 +29,33 @@ const PAD = { top: 12, right: 12, bottom: 24, left: 44 }
 const EXPOSURE_H = 22
 const EXPOSURE_GAP = 8
 
+/** How a strategy curve is drawn. Every strategy curve shares the strategy
+ *  colour — they are the same system measured over different universes,
+ *  not different systems — so line weight and dash carry the difference. */
+export interface LineStyle {
+  width?: number
+  opacity?: number
+  /** An SVG dasharray; `'none'` for solid. Overlays default to dashed. */
+  dash?: string
+}
+
+export interface Overlay extends LineStyle {
+  label: string
+  points: EquityPoint[]
+  /** Listed first in the legend and drawn on top of everything else —
+   *  for the curve the others should be read against. */
+  lead?: boolean
+}
+
 interface Props {
   points: EquityPoint[]
   benchmarkLabel?: string
   strategyLabel?: string
-  /** A second strategy curve from a different run — same rules, different
-   *  universe. Drawn in the strategy colour but dashed, because it is the
-   *  same system measured again rather than a different system. */
-  overlay?: { label: string; points: EquityPoint[] } | null
+  /** Style for the `points` strategy curve; defaults to solid. */
+  strategyStyle?: LineStyle
+  /** Further strategy curves from other runs — same rules, different
+   *  universe. */
+  overlays?: Overlay[]
   /**
    * Draw a strip showing how much of the account was invested over time.
    *
@@ -95,7 +114,8 @@ export function EquityChart({
   points,
   benchmarkLabel = 'SPY',
   strategyLabel = 'Strategy',
-  overlay = null,
+  strategyStyle = {},
+  overlays = [],
   showExposure = false,
 }: Props) {
   if (points.length < 2) return null
@@ -106,30 +126,32 @@ export function EquityChart({
   const withExposure = showExposure && exposure.length > 1
   const height = withExposure ? HEIGHT + EXPOSURE_GAP + EXPOSURE_H : HEIGHT
 
-  // Legend order, which is also value order: the headline strategy, the
-  // same strategy on the alternate universe, then the benchmark.
+  const overlayLine = (overlay: Overlay): Line => ({
+    key: `overlay-${overlay.label}`,
+    label: overlay.label,
+    samples: rebase(overlay.points, (p) => p.strategy),
+    color: 'var(--chart-1)',
+    width: overlay.width ?? 1.5,
+    opacity: overlay.opacity ?? 0.9,
+    dash: overlay.dash ?? '5 3',
+  })
+  const drawable = overlays.filter((o) => o.points.length > 1)
+
+  // Legend order, which is also draw order reversed (first is on top): a
+  // lead curve if there is one, the headline strategy, the same strategy
+  // on the other universes, then the benchmark.
   const lines: Line[] = [
+    ...drawable.filter((o) => o.lead).map(overlayLine),
     {
       key: 'strategy',
       label: strategyLabel,
       samples: rebase(points, (p) => p.strategy),
       color: 'var(--chart-1)',
-      width: 2,
-      opacity: 1,
+      width: strategyStyle.width ?? 2,
+      opacity: strategyStyle.opacity ?? 1,
+      dash: strategyStyle.dash,
     },
-    ...(overlay && overlay.points.length > 1
-      ? [
-          {
-            key: 'overlay',
-            label: overlay.label,
-            samples: rebase(overlay.points, (p) => p.strategy),
-            color: 'var(--chart-1)',
-            width: 1.5,
-            opacity: 0.9,
-            dash: '5 3',
-          },
-        ]
-      : []),
+    ...drawable.filter((o) => !o.lead).map(overlayLine),
     {
       key: 'benchmark',
       label: `${benchmarkLabel} buy & hold`,
@@ -277,14 +299,14 @@ export function EquityChart({
       <figcaption className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-[11px] text-muted-foreground">
         {lines.map((line) => (
           <span key={line.key} className="inline-flex items-center gap-1.5">
-            <svg width={12} height={4} aria-hidden="true" className="shrink-0">
+            <svg width={16} height={4} aria-hidden="true" className="shrink-0">
               <line
                 x1={0}
                 y1={2}
-                x2={12}
+                x2={16}
                 y2={2}
                 stroke={line.color}
-                strokeWidth={2}
+                strokeWidth={Math.max(line.width, 2)}
                 strokeDasharray={line.dash}
                 opacity={line.opacity}
               />

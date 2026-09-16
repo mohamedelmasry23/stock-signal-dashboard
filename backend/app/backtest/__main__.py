@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime
 from pathlib import Path
+from typing import Optional
 
 from ..config import DATA_DIR
 from ..pipeline import (
@@ -33,9 +34,12 @@ from .config import (
     BacktestConfig,
 )
 from .engine import build_calendar, run_backtest
+from .membership import MembershipSchedule, load_interval_schedule, load_schedule
 from .prices import load_prices
 from .report import render_summary, write_artifacts
 from .strategies import STRATEGIES
+
+DEFAULT_START = date(2016, 1, 1)
 
 # Futures symbols are excluded from the TRADED universe. A continuous
 # front-month series like GC=F contains roll gaps that are contract
@@ -45,22 +49,63 @@ from .strategies import STRATEGIES
 FUTURES_SUFFIX = "=F"
 
 
-def resolve_universe(spec: str) -> tuple[list[str], list[str]]:
+# The S&P universe for every backtest from 2026-09-14 on:
+#   --universe constituents:data/universes/sp500_constituents.csv,etfs
+SP500_CONSTITUENTS = "constituents:data/universes/sp500_constituents.csv"
+
+PATH_PREFIXES = ("file:", "events:", "constituents:")
+SCHEDULE_PREFIXES = ("events:", "constituents:")
+
+
+def _paths(spec: str, prefix: str) -> list[str]:
+    parts = [p.strip() for p in spec.split(",") if p.strip()]
+    return [p[len(prefix):] for p in parts if p.lower().startswith(prefix)]
+
+
+def resolve_membership(spec: str, start: date) -> Optional[MembershipSchedule]:
+    """The schedule behind an `events:<csv>` or `constituents:<csv>`
+    universe, or None without one.
+
+    Only one per run: two schedules would each claim to be the index."""
+    events, intervals = _paths(spec, "events:"), _paths(spec, "constituents:")
+    if len(events) + len(intervals) > 1:
+        raise ValueError("a universe can name at most one events: or constituents: file")
+    if events:
+        return load_schedule(Path(events[0]), start)
+    if intervals:
+        return load_interval_schedule(Path(intervals[0]), start)
+    return None
+
+
+def has_announcements(spec: str) -> bool:
+    """Only an events: file dates changes by announcement; a constituents:
+    file switches on effective dates and gives the overlay nothing to trade."""
+    return bool(_paths(spec, "events:"))
+
+
+def resolve_universe(spec: str, start: date = DEFAULT_START) -> tuple[list[str], list[str]]:
     """Returns (tradeable tickers, names of anything excluded).
 
     Accepts `file:<path>` for a saved point-in-time membership list — the
-    survivorship-bias mitigation described in app/backtest/universe.py.
-    Anything else unrecognised is treated as a literal ticker.
+    survivorship-bias mitigation described in app/backtest/universe.py —
+    and `events:<path>` (a dated change file) or `constituents:<path>`
+    (membership intervals), either of which contributes every ticker that
+    was an index member at any point from `start` on (see
+    app/backtest/membership.py). Anything else unrecognised is treated as
+    a literal ticker.
     """
     parts = [p.strip() for p in spec.split(",") if p.strip()]
-    names = {p.lower() for p in parts if not p.lower().startswith("file:")}
-    files = [p[len("file:"):] for p in parts if p.lower().startswith("file:")]
+    names = {p.lower() for p in parts if not p.lower().startswith(PATH_PREFIXES)}
     tickers: list[str] = []
 
-    for path in files:
+    for path in _paths(spec, "file:"):
         from .universe import load_membership
 
         tickers += load_membership(Path(path))
+
+    schedule = resolve_membership(spec, start)
+    if schedule is not None:
+        tickers += sorted(schedule.universe)
 
     if names & {"sp500", "all"}:
         tickers += get_sp500_tickers()
@@ -85,8 +130,8 @@ def resolve_universe(spec: str) -> tuple[list[str], list[str]]:
 
 
 def universe_label(spec: str) -> str:
-    """Display form of a `--universe` spec: `file:` parts collapse to the
-    membership file's stem, so a run is stored and shown as
+    """Display form of a `--universe` spec: `file:`, `events:` and `constituents:` parts
+    collapse to the file's stem, so a run is stored and shown as
     `sp500_2016,etfs` rather than `file:data/universes/sp500_2016.txt,etfs`.
 
     The dashboard keys the point-in-time run off this label, so it has to
@@ -94,10 +139,8 @@ def universe_label(spec: str) -> str:
     """
     parts = []
     for part in (p.strip() for p in spec.split(",") if p.strip()):
-        if part.lower().startswith("file:"):
-            parts.append(Path(part[len("file:"):]).stem)
-        else:
-            parts.append(part)
+        prefix = next((p for p in PATH_PREFIXES if part.lower().startswith(p)), None)
+        parts.append(Path(part[len(prefix):]).stem if prefix else part)
     return ",".join(parts)
 
 
@@ -126,10 +169,16 @@ def resolve_costs(spec: str, cost_bps=None, slippage_bps=None) -> tuple[float, f
 
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="python -m app.backtest", description=__doc__)
-    p.add_argument("--start", type=lambda s: date.fromisoformat(s), default=date(2016, 1, 1))
+    p.add_argument("--start", type=lambda s: date.fromisoformat(s), default=DEFAULT_START)
     p.add_argument("--end", type=lambda s: date.fromisoformat(s), default=date.today())
     p.add_argument("--universe", default="commodities,etfs",
-                   help="sp500 | etfs | index_etfs | commodities | all | comma-separated tickers")
+                   help="sp500 | etfs | index_etfs | commodities | all | file:<list> | "
+                        "events:<csv> | constituents:<csv> | comma-separated tickers. "
+                        f"S&P backtests use {SP500_CONSTITUENTS},etfs")
+    p.add_argument("--index-overlay", action="store_true",
+                   help="with an events: universe, run twice — membership only, then also "
+                        "buying S&P additions / selling removals on the announcement — and "
+                        "compare")
     p.add_argument("--strategy", choices=sorted(STRATEGIES), default="donchian",
                    help="which system to measure (default: donchian)")
     p.add_argument("--benchmark", default="SPY")
@@ -181,7 +230,27 @@ def parse_args(argv=None) -> argparse.Namespace:
 def main(argv=None) -> int:
     args = parse_args(argv)
 
-    tickers, excluded = resolve_universe(args.universe)
+    schedule = resolve_membership(args.universe, args.start)
+    if args.index_overlay and not has_announcements(args.universe):
+        print("[backtest] --index-overlay needs an events: universe to know what was announced "
+              "(a constituents: file has effective dates only).")
+        return 2
+    if args.index_overlay and args.both_variants:
+        print("[backtest] --index-overlay and --both-variants each make a two-run comparison; "
+              "pick one.")
+        return 2
+    if args.index_overlay and args.save:
+        # A membership-only run is saved as its own series (the API keys it
+        # off the `sp500_events` label and draws it beside the headline).
+        # The overlay run has no such place, and it measures a system the
+        # live pipeline can't run — there is no announcement feed.
+        print("[backtest] --save is refused with --index-overlay: the dashboard has no place "
+              "for the announcement-trading run, and the live pipeline can't trade it. Run "
+              "without --index-overlay to save the membership line. Artifacts are still "
+              "written under --out.")
+        return 2
+
+    tickers, excluded = resolve_universe(args.universe, args.start)
     universe = universe_label(args.universe)
     # Unless overridden, each strategy is measured with the allocation
     # model it is actually traded with — see `sizing_mode` in config.py.
@@ -209,8 +278,16 @@ def main(argv=None) -> int:
     dropped = len(tickers) - len(prices)
     if dropped:
         print(f"[backtest] {dropped} ticker(s) returned no data.")
+    if schedule is not None:
+        members = schedule.universe
+        print(f"[backtest] membership: {len(members)} companies were S&P 500 members at some "
+              f"point since {args.start}; {len(members - set(prices))} have no price data. "
+              f"{len(schedule.switches)} membership changes"
+              f"{' (announcement-dated)' if has_announcements(args.universe) else ' (effective-dated)'}.")
+        for warning in schedule.warnings:
+            print(f"[backtest]   note: {warning}")
 
-    def build(use_stop: bool) -> BacktestConfig:
+    def build(use_stop: bool, overlay: bool = False) -> BacktestConfig:
         return BacktestConfig(
             start=args.start, end=args.end, tickers=tuple(sorted(prices)),
             benchmark=args.benchmark, initial_equity=args.equity, risk_fraction=args.risk,
@@ -224,17 +301,24 @@ def main(argv=None) -> int:
             fill=args.fill, max_positions=args.max_positions,
             max_position_fraction=args.max_position_frac, min_notional=args.min_notional,
             allow_fractional=not args.no_fractional, price_mode=args.price_mode,
-            risk_free_annual=args.risk_free,
-            label=f"{args.strategy} {universe} {'with ATR stop' if use_stop else 'faithful'}",
+            risk_free_annual=args.risk_free, index_overlay=overlay,
+            label=f"{args.strategy} {universe} {'with ATR stop' if use_stop else 'faithful'}"
+                  + (" + index overlay" if overlay else ""),
         )
 
-    variants = [False, True] if args.both_variants else [args.atr_stop]
+    # (use_stop, overlay) per run.
+    if args.index_overlay:
+        variants = [(args.atr_stop, False), (args.atr_stop, True)]
+    elif args.both_variants:
+        variants = [(False, False), (True, False)]
+    else:
+        variants = [(args.atr_stop, False)]
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     results = []
 
-    for use_stop in variants:
-        config = build(use_stop)
-        result = run_backtest(prices, config, benchmark_frame)
+    for use_stop, overlay in variants:
+        config = build(use_stop, overlay)
+        result = run_backtest(prices, config, benchmark_frame, membership=schedule)
 
         if benchmark_frame is not None:
             from . import metrics
@@ -249,7 +333,10 @@ def main(argv=None) -> int:
 
         print()
         print(render_summary(result, universe, dropped))
-        out = write_artifacts(result, args.out / f"{stamp}-{config.variant}", universe)
+        # Both overlay runs are the same variant, so the directory name has
+        # to say which is which or the second overwrites the first.
+        suffix = "-index_overlay" if overlay else ("-membership" if schedule is not None else "")
+        out = write_artifacts(result, args.out / f"{stamp}-{config.variant}{suffix}", universe)
         print(f"\n[backtest] artifacts: {out}")
         results.append(result)
 
@@ -260,25 +347,35 @@ def main(argv=None) -> int:
             print(f"[backtest] saved as run {run_id} (visible in the dashboard)")
 
     if len(results) == 2:
-        faithful, stopped = results
+        first, second = results
+        title, columns = (
+            ("OVERLAY COMPARISON — what trading the announcements adds", ("membership", "+ overlay"))
+            if args.index_overlay
+            else ("VARIANT COMPARISON — what the missing stop-loss costs", ("no stop", "ATR stop"))
+        )
         print("\n" + "=" * 60)
-        print("VARIANT COMPARISON — what the missing stop-loss costs")
+        print(title)
         print("=" * 60)
         for label, key, fmt in (
             ("Total return", "total_return", "pct"),
+            ("CAGR", "cagr", "pct"),
             ("Max drawdown", "max_drawdown", "pct"),
             ("Sharpe", "sharpe", "num"),
             ("Losses worse than 1R", "pct_losses_worse_than_1r", "pct"),
             ("Number of trades", "n_trades", "int"),
         ):
-            a, b = faithful.summary.get(key), stopped.summary.get(key)
+            a, b = first.summary.get(key), second.summary.get(key)
             render = (
                 (lambda v: "—" if v is None else f"{v * 100:.2f}%") if fmt == "pct"
                 else (lambda v: "—" if v is None else f"{v:,.2f}") if fmt == "num"
                 else (lambda v: str(v))
             )
             print(f"  {label:<26}{render(a):>14}{render(b):>14}")
-        print(f"  {'':<26}{'no stop':>14}{'ATR stop':>14}")
+        print(f"  {'':<26}{columns[0]:>14}{columns[1]:>14}")
+        bench = first.benchmark_summary or {}
+        if bench:
+            print(f"  Benchmark ({args.benchmark}) total return "
+                  f"{bench.get('total_return', 0) * 100:.2f}%, Sharpe {bench.get('sharpe') or 0:.2f}")
 
     return 0
 

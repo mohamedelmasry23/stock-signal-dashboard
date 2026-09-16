@@ -45,6 +45,7 @@ import pandas as pd
 
 from ..account import suggested_shares
 from .config import BacktestConfig
+from .membership import MembershipSchedule, additions_without_prices, align
 from .metrics import TRADING_DAYS
 from .strategies import get_strategy
 
@@ -65,6 +66,9 @@ class Trade:
     risk_dollars: float
     stop_distance: float
     bars_held: int
+    # "signal" for the strategy's own entry; "index_addition" for a buy on
+    # an S&P addition announcement (the index-change overlay).
+    entry_reason: str = "signal"
 
     @property
     def gross_pnl(self) -> float:
@@ -102,6 +106,7 @@ class Position:
     stop_price: Optional[float]
     last_price: float
     stale_bars: int = 0
+    entry_reason: str = "signal"
 
 
 @dataclass
@@ -116,6 +121,9 @@ class BacktestResult:
     summary: dict = field(default_factory=dict)
     benchmark_summary: dict = field(default_factory=dict)
     skipped_for_capital: int = 0
+    # What happened to each addition the overlay tried to buy, by outcome.
+    # Empty unless config.index_overlay.
+    overlay: dict = field(default_factory=dict)
 
 
 def _aligned(frame: pd.DataFrame, calendar: pd.DatetimeIndex, config: BacktestConfig) -> dict:
@@ -180,8 +188,16 @@ def run_backtest(
     prices: Dict[str, pd.DataFrame],
     config: BacktestConfig,
     benchmark_frame: Optional[pd.DataFrame] = None,
+    membership: Optional[MembershipSchedule] = None,
 ) -> BacktestResult:
+    """`membership`, when given, restricts entries to tickers that are
+    index members on the decision bar; tickers outside the schedule are
+    unrestricted. `config.index_overlay` additionally trades the
+    announcements themselves. With neither, the run is unchanged."""
     from . import metrics  # local import: metrics imports Trade for typing
+
+    if config.index_overlay and membership is None:
+        raise ValueError("index_overlay needs a membership schedule to trade")
 
     tickers = sorted(t for t in prices if len(prices[t]) > 0)
     calendar = build_calendar(prices, config, benchmark_frame)
@@ -192,11 +208,27 @@ def run_backtest(
         )
 
     data = {t: _aligned(prices[t], calendar, config) for t in tickers}
+    index = align(membership, calendar, tickers) if membership is not None else {}
+    overlay = config.index_overlay
 
     cash = config.initial_equity
     positions: Dict[str, Position] = {}
     trades: List[Trade] = []
     skipped_for_capital = 0
+    # Outcome of every addition announcement the overlay acted on. A buy
+    # can fail for reasons worth reporting separately — above all a
+    # spin-off that has no price history yet on its announcement day.
+    overlay_outcomes: Dict[str, int] = {}
+    if overlay:
+        unpriced = additions_without_prices(membership, calendar, tickers)
+        if unpriced:
+            overlay_outcomes["no_price_data"] = len(unpriced)
+    # A removal is announced on one bar but can only be sold on a bar with
+    # a print; carried until then (or until the stale sweep takes it).
+    removal_pending: set = set()
+
+    def note(outcome: str) -> None:
+        overlay_outcomes[outcome] = overlay_outcomes.get(outcome, 0) + 1
 
     equity_curve = np.empty(len(calendar), dtype=float)
     cash_curve = np.empty(len(calendar), dtype=float)
@@ -214,7 +246,7 @@ def run_backtest(
         else 0.0
     )
 
-    def close_position(pos: Position, price: float, index: int, reason: str) -> None:
+    def close_position(pos: Position, price: float, bar: int, reason: str) -> None:
         nonlocal cash
         proceeds = pos.shares * price
         exit_cost = proceeds * cost_rate
@@ -225,14 +257,15 @@ def run_backtest(
                 entry_date=calendar[pos.entry_index].date(),
                 entry_price=pos.entry_price,
                 shares=pos.shares,
-                exit_date=calendar[index].date(),
+                exit_date=calendar[bar].date(),
                 exit_price=price,
                 exit_reason=reason,
                 entry_cost=pos.entry_cost,
                 exit_cost=exit_cost,
                 risk_dollars=pos.risk_dollars,
                 stop_distance=pos.stop_distance,
-                bars_held=index - pos.entry_index,
+                bars_held=bar - pos.entry_index,
+                entry_reason=pos.entry_reason,
             )
         )
 
@@ -260,6 +293,23 @@ def run_backtest(
                 if pos.stale_bars > config.max_stale_bars:
                     close_position(pos, pos.last_price, x, "stale")
                     del positions[ticker]
+
+        # --- 1b. Index removals (overlay only) --------------------------
+        # Announced after d's close, sold at x's open. Ahead of the
+        # strategy's own exits so a holding that is both being removed and
+        # breaking down is recorded as the removal it primarily is.
+        if overlay:
+            for ticker in positions:
+                if ticker in index and index[ticker].removed[d]:
+                    removal_pending.add(ticker)
+            removal_pending &= positions.keys()
+            for ticker in sorted(removal_pending):
+                price = data[ticker][fill_field][x]
+                if not np.isfinite(price):
+                    continue  # no print on x; retry next bar
+                close_position(positions[ticker], price, x, "index_removal")
+                del positions[ticker]
+                removal_pending.discard(ticker)
 
         # --- 2. Donchian exits ------------------------------------------
         # Signalled by d's close, filled on x. Runs before entries so the
@@ -298,16 +348,27 @@ def run_backtest(
         # --- 4. Entries --------------------------------------------------
         candidates = []
         for ticker in tickers:
+            membership_row = index.get(ticker)
+            # Announced as an addition after d's close: the overlay buys it
+            # at x's open whether or not the strategy signalled.
+            news = overlay and membership_row is not None and bool(membership_row.added[d])
             if ticker in positions:
+                if news:
+                    note("already_held")
                 continue
+            if membership_row is not None and not membership_row.member[d]:
+                continue  # not an index member when the decision was made
             arr = data[ticker]
-            if not arr["entry"][d]:
+            if not (arr["entry"][d] or news):
                 continue
             stop_distance = arr["stop_distance"][d]
             # np.isfinite, not `is None`: suggested_shares() returns NaN
             # for a NaN stop distance (NaN <= 0 is False), and one NaN
             # share count turns cash and every later equity point into NaN.
             if not (np.isfinite(stop_distance) and stop_distance > 0):
+                if news:
+                    # Usually a spin-off: no bars yet, so no ATR to size by.
+                    note("no_price_history")
                 continue
             # The strategy's own ranking key, computed by the same formula
             # the matching /api/…entry-candidates endpoint uses. When a day
@@ -316,16 +377,24 @@ def run_backtest(
             # the entry rule, decides what actually gets traded.
             rank = arr["rank"][d]
             if not np.isfinite(rank):
-                continue
-            # Ticker as tiebreak so a run is reproducible rather than
-            # dependent on dict ordering.
-            candidates.append((-rank, ticker, stop_distance))
+                if not news:
+                    continue
+                rank = 0.0
+            # News entries sort ahead of every ordinary signal: the
+            # announcement gets first claim on a free slot. Without an
+            # overlay the first element is constant, so the order — and
+            # every earlier result — is unchanged. Ticker as tiebreak so a
+            # run is reproducible rather than dependent on dict ordering.
+            candidates.append((0 if news else 1, -rank, ticker, stop_distance))
 
         candidates.sort()
 
-        for _, ticker, stop_distance in candidates:
+        for priority, _, ticker, stop_distance in candidates:
+            news = priority == 0
             if len(positions) >= config.max_positions:
                 skipped_for_capital += 1
+                if news:
+                    note("no_free_slot")
                 continue
 
             raw_price = data[ticker][fill_field][x]
@@ -333,6 +402,8 @@ def run_backtest(
                 # Signalled but untradeable on x (halt, missing bar).
                 # Cancel rather than carry: carrying would let the engine
                 # pick its entry bar with hindsight.
+                if news:
+                    note("no_fill_price")
                 continue
 
             fill_price = raw_price * (1 + cost_rate)
@@ -351,6 +422,8 @@ def run_backtest(
                     float(stop_distance), equity_for_sizing, config.risk_fraction
                 )
                 if target is None or not np.isfinite(target) or target <= 0:
+                    if news:
+                        note("not_sizable")
                     continue
                 # Caps the live app doesn't have. Risk-based sizing on a
                 # low-volatility name routinely asks for multiples of the
@@ -360,6 +433,10 @@ def run_backtest(
                 shares = min(target, by_fraction, by_cash)
 
             if not np.isfinite(shares) or shares <= 0:
+                if news:
+                    # target and by_fraction are positive here, so a zero
+                    # means by_cash was: the account was fully spent.
+                    note("no_cash" if by_cash <= 0 else "not_sizable")
                 continue
 
             if not config.allow_fractional:
@@ -367,9 +444,15 @@ def run_backtest(
             if shares <= 0 or shares * fill_price < config.min_notional:
                 if target > by_cash:
                     skipped_for_capital += 1
+                if news:
+                    # Cash, not sizing, is what usually stops a news buy:
+                    # a fully invested trend book has little left over.
+                    note("no_cash" if target > by_cash else "not_sizable")
                 continue
             if shares < target:
                 skipped_for_capital += 1
+            if news:
+                note("bought" if shares >= target else "bought_smaller_than_intended")
 
             notional = shares * raw_price
             entry_cost = notional * cost_rate
@@ -401,6 +484,7 @@ def run_backtest(
                 # stop masquerading as a 2x one.
                 stop_price=raw_price - float(stop_distance) if config.use_atr_stop else None,
                 last_price=raw_price,
+                entry_reason="index_addition" if news else "signal",
             )
 
         # --- 5. Interest on idle cash ------------------------------------
@@ -442,6 +526,7 @@ def run_backtest(
         trades=trades,
         config=config,
         skipped_for_capital=skipped_for_capital,
+        overlay=overlay_outcomes,
     )
     result.summary = metrics.summarize(
         equity, trades, result.positions_count, result.exposure, config.risk_free_annual

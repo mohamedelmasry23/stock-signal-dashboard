@@ -1,6 +1,6 @@
 import { AlertTriangle, FlaskConical } from 'lucide-react'
 import type { Backtest, BacktestRun, BacktestSummary } from '../lib/api'
-import { EquityChart } from './EquityChart'
+import { EquityChart, type Overlay } from './EquityChart'
 import { Badge, Card, CardHeader, EmptyState, Skeleton, StatTile, cn } from './ui'
 
 function num(summary: BacktestSummary | null | undefined, key: string): number | null {
@@ -151,7 +151,15 @@ function Figure({ children }: { children: string }) {
  * caption quoting a number the chart no longer shows is worse than no
  * caption, and these are regenerated every time a backtest is re-run.
  */
-function ChartNote({ run, pointInTime }: { run: BacktestRun; pointInTime: BacktestRun | null }) {
+function ChartNote({
+  run,
+  pointInTime,
+  currentList,
+}: {
+  run: BacktestRun
+  pointInTime: BacktestRun | null
+  currentList: BacktestRun | null
+}) {
   const strategy = pct(num(run.summary, 'total_return'), 0)
   const benchmark = pct(num(run.benchmark_summary, 'total_return'), 0)
 
@@ -161,15 +169,41 @@ function ChartNote({ run, pointInTime }: { run: BacktestRun; pointInTime: Backte
       <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
         Every line starts at 100 — $100 invested on the first day, compounded by that series' own
         returns — so their shapes stay comparable even though the runs differ.{' '}
-        {pointInTime ? (
+        {currentList ? (
+          <>
+            The gold lines are all the <em>same</em> strategy; the only difference is which companies
+            it was allowed to buy. The bold line — the one the figures above describe — trades each
+            company only while it was actually in the S&amp;P 500, the only one of them a person
+            could really have traded. It ended at <Figure>{strategy}</Figure> against buy &amp;
+            hold's <Figure>{benchmark}</Figure>. The dashed line uses today's list for the whole
+            decade (<Figure>{pct(num(currentList.summary, 'total_return'), 0)}</Figure>). S&amp;P
+            adds companies after they have already soared, so that line could buy future members
+            before they joined — most of its gain comes from that head start, which is why it runs
+            away late on.{' '}
+            {pointInTime && (
+              <>
+                The dotted line freezes the list as it stood in {snapshotYear(pointInTime)} (
+                <Figure>{pct(num(pointInTime.summary, 'total_return'), 0)}</Figure>), so it kept
+                trading companies after S&amp;P dropped them
+                {pointInTime.start_date < '2021-01-01'
+                  ? " — the spike in early 2021 is GameStop's squeeze, years after it left the index"
+                  : ''}
+                .{' '}
+              </>
+            )}
+            Even the bold line leans optimistic: free price data is missing for many companies that
+            were later removed, and those were disproportionately the failures.
+          </>
+        ) : pointInTime ? (
           <>
             The solid and dashed lines are the <em>same</em> strategy over two different universes:
             today's index membership (<Figure>{strategy}</Figure>) and the S&amp;P 500 frozen as it
             stood in {snapshotYear(pointInTime)} (
-            <Figure>{pct(num(pointInTime.summary, 'total_return'), 0)}</Figure>). Today's list omits
-            every company that failed along the way, and the {snapshotYear(pointInTime)} list omits
-            everything added since — so the pair brackets the truth rather than pinning it down, and
-            buy &amp; hold's <Figure>{benchmark}</Figure> sits inside that bracket.
+            <Figure>{pct(num(pointInTime.summary, 'total_return'), 0)}</Figure>). Neither is the list
+            a person could have traded at the time — today's could buy future members before they
+            joined, the {snapshotYear(pointInTime)} one kept companies after they left — so the gap
+            shows how much the choice of list matters, not where the truth lies. Buy &amp; hold
+            returned <Figure>{benchmark}</Figure>.
           </>
         ) : (
           <>
@@ -245,7 +279,11 @@ export function BacktestPanel({
             <>
               Run{' '}
               <code className="font-mono">
-                python3 -m app.backtest --strategy {strategy} --universe sp500,etfs --save
+                python3 -m app.backtest --strategy {strategy} --universe{' '}
+                {strategy === 'donchian'
+                  ? 'constituents:data/universes/sp500_constituents.csv,etfs'
+                  : 'index_etfs'}{' '}
+                --save
               </code>{' '}
               from the backend folder to simulate this strategy over historical prices and populate
               this panel.
@@ -256,14 +294,32 @@ export function BacktestPanel({
     )
   }
 
-  // The point-in-time curve is only worth drawing beside a run it differs
-  // from in exactly one way — the universe. Against the ATR-stop variant,
-  // or against a commodities run, two things would have changed at once
-  // and the gap between the lines would no longer mean survivorship bias.
-  const pointInTime =
-    run === backtest?.faithful && run.universe.includes('sp500')
-      ? backtest?.point_in_time ?? null
-      : null
+  // The other-universe curves are only worth drawing beside a run they
+  // differ from in exactly one way — the universe. Against the ATR-stop
+  // variant, or against a commodities run, two things would have changed
+  // at once and the gap between the lines would no longer mean survivorship
+  // bias.
+  const comparable = run === backtest?.faithful && run.universe.includes('sp500')
+  const pointInTime = comparable ? backtest?.point_in_time ?? null : null
+  // Present only when the headline IS the members-at-the-time run (the API
+  // decides that). The two lists that could not actually have been traded
+  // then sit behind it: dashed (today's) and dotted (the snapshot).
+  const currentList = comparable ? backtest?.current_list ?? null : null
+
+  const overlays: Overlay[] = [
+    ...(currentList
+      ? [{ label: "Today's list", points: currentList.equity, width: 1.5, opacity: 0.75, dash: '5 3' }]
+      : []),
+    ...(pointInTime
+      ? [
+          {
+            label: `${snapshotYear(pointInTime)} list`,
+            points: pointInTime.equity,
+            ...(currentList ? { dash: '1.5 3', opacity: 0.75 } : {}),
+          },
+        ]
+      : []),
+  ]
 
   const s = run.summary
   const totalReturn = num(s, 'total_return')
@@ -322,19 +378,16 @@ export function BacktestPanel({
 
         <EquityChart
           points={run.equity}
-          strategyLabel={pointInTime ? "Strategy — today's members" : 'Strategy'}
+          strategyLabel={currentList ? 'Members at the time' : pointInTime ? "Today's list" : 'Strategy'}
+          strategyStyle={currentList ? { width: 2.5 } : {}}
           // Only where it earns its space. Donchian sits ~98% invested, so
           // the strip would be a solid block saying nothing; RSI is under a
           // fifth invested, where it's the difference between reading the
           // curve correctly and not.
           showExposure={run.strategy === 'rsi'}
-          overlay={
-            pointInTime
-              ? { label: `Strategy — ${snapshotYear(pointInTime)} membership`, points: pointInTime.equity }
-              : null
-          }
+          overlays={overlays}
         />
-        <ChartNote run={run} pointInTime={pointInTime} />
+        <ChartNote run={run} pointInTime={pointInTime} currentList={currentList} />
 
         <div className="grid gap-6 lg:grid-cols-2 mt-6">
           <div>

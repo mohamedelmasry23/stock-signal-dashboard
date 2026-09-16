@@ -130,6 +130,13 @@ class BacktestConfig:
     # denominator assume the same world.
     cash_yield_annual: float = 0.0
 
+    # The S&P index-change overlay: buy a company at the open after its
+    # addition to the S&P 500 is announced, sell a holding at the open
+    # after its removal is announced. Needs a membership schedule passed to
+    # run_backtest (see app/backtest/membership.py); backtest-only, because
+    # the live pipeline has no announcement feed.
+    index_overlay: bool = False
+
     label: str = ""
     notes: tuple[str, ...] = field(default_factory=tuple)
 

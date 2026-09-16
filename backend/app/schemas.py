@@ -370,11 +370,18 @@ class BacktestOut(BaseModel):
     historical index membership instead of today's. It's a separate field
     rather than a third variant because it differs in universe, not in
     rules — and the dashboard draws it against `faithful` to show how wide
-    the survivorship-bias bracket really is."""
+    the survivorship-bias bracket really is.
+
+    When a membership run exists — each company traded only while it was
+    actually an S&P 500 member — it IS `faithful` (and its stop variant
+    `atr_stop`): the one universe a person could really have traded is the
+    headline. `current_list` is then the same strategy on today's list for
+    the whole decade, served only as a comparison curve. Null otherwise."""
 
     faithful: Optional[BacktestRunOut] = None
     atr_stop: Optional[BacktestRunOut] = None
     point_in_time: Optional[BacktestRunOut] = None
+    current_list: Optional[BacktestRunOut] = None
     caveats: List[str] = []
 
 

@@ -160,6 +160,10 @@ export interface Backtest {
   // The same faithful strategy measured over a frozen historical index
   // membership rather than today's. Null until such a run is saved.
   point_in_time: BacktestRun | null
+  // When a members-at-the-time run is saved it IS `faithful` (the API makes
+  // it the headline), and this is the same strategy on today's list for the
+  // whole decade, drawn only for comparison. Null otherwise.
+  current_list: BacktestRun | null
   caveats: string[]
 }
 
