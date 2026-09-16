@@ -193,6 +193,72 @@ normal pullback looks exactly like the weakest holding. The more a version
 protects existing holdings, the closer it gets back to no swaps. Trading costs
 rose by only ~$10–15k, so they are a minor part of the gap.
 
+## 6. Volatility filter: stop taking trades when volatility is abnormally high
+
+*Scripts: `vol_filter.py`, `vol_filter_shock.py` · 2026-09-16*
+
+**Rule.** Computed on weekly (Friday) closes from past data only, and applied
+to new buys only — exits are unchanged. Three layers, any of which blocks an
+entry:
+
+- **Market:** SPY's volatility is high relative to its own normal.
+- **Stock:** the stock's volatility is high relative to its own normal.
+- **Shock:** a single huge weekly move, for SPY or the stock, because rolling
+  volatility takes weeks to catch up to a sudden spike.
+
+Parameters, fixed before any result was seen: volatility is the 13-week
+standard deviation of weekly log returns; "normal" is the median of that
+volatility over the previous 260 weeks (5 years, at least 104), excluding the
+current week; "high" is above 1.5× normal; a shock is a weekly move larger
+than 3× normal, and blocks entries that week and the next three. A daily
+decision uses the latest week that ended on or before it. The price cache
+starts in 2016, so 2010–2015 closes were fetched separately (kept out of the
+cache) to give each asset its 5-year history; 162 of 710 tickers have no
+pre-2016 data, and their stock layer switches on after 2 years of their own.
+Flags computed with data cut off at 2020-06-30 matched the full run, so
+nothing leaks from the future.
+
+| Filter | Total | Max DD | Sharpe | Trades | 2020 | 2022 |
+|---|---|---|---|---|---|---|
+| **No filter** | **+164%** | −28.5% | **0.63** | 449 | +0.1% | −12.9% |
+| Market layer only | +51% | −31.1% | 0.32 | 350 | −3.4% | −13.2% |
+| Stock layer only | +89% | −27.5% | 0.45 | 427 | −0.3% | −15.3% |
+| Shock only | +160% | −24.4% | 0.61 | 399 | +0.1% | −8.0% |
+| **All three (the design)** | **+98%** | −29.6% | 0.47 | 334 | −9.5% | −8.8% |
+| All three, only down weeks count as shocks | +61% | −32.5% | 0.36 | 346 | −7.0% | −11.3% |
+| All three, "high" at 1.25× normal | +116% | −26.6% | 0.54 | 278 | +3.2% | −5.7% |
+| All three, "high" at 2× normal | +105% | −29.7% | 0.50 | 370 | +0.1% | −15.4% |
+| Also sell everything when SPY volatility is high (diagnostic) | +99% | −24.3% | 0.50 | 342 | −13.9% | −4.5% |
+
+Other start dates:
+
+| Start | No filter | All three | Shock only | Shock only, down weeks |
+|---|---|---|---|---|
+| 2016 | +164%, −28.5%, 0.63 | +98%, −29.6%, 0.47 | +160%, −24.4%, 0.61 | +129%, −31.8%, 0.54 |
+| 2017 | +147%, −28.5%, 0.63 | +74%, −28.3%, 0.42 | +119%, −23.4%, 0.57 | +133%, −28.4%, 0.59 |
+| 2018 | +105%, −28.5%, 0.56 | +25%, −27.8%, 0.23 | +81%, −24.2%, 0.49 | +120%, −25.1%, 0.61 |
+
+(Each cell: total return, max drawdown, Sharpe.)
+
+**Finding.** The filter blocks the *better* trades. Of the unfiltered run's
+449 trades, the full rule would have blocked 162; those averaged **+3.0%**,
+against **+1.7%** for the 287 it let through (similar median and win rate —
+the blocked group had bigger winners). Donchian rarely buys during the fall
+itself, and volatility stays high for months afterwards — SPY counted as
+high-volatility on 37 weeks in 2020 and 40 in 2022, and the market layer
+blocks 26% of trading days — so the blocking lands mostly in recoveries, when
+breakouts run furthest. Filtering entries also can't cut exposure in a crash
+while the book stays ~97% invested; even selling everything on a SPY spike
+only improved the drawdown by 4 points, at a cost of 65 points of return.
+Results don't move consistently with the threshold (1.25× and 2× both beat
+1.5×), which points to noise. **Shock only** was the closest to neutral: it
+trimmed the drawdown by 4–5 points from every start, but cost 4, 28 and 23
+points of return and some Sharpe each time — a trade-off, not an
+improvement. Counting only down weeks as shocks was worse from 2016 and
+better from 2018, again inconsistent. 2016–2026 had two sharp crashes that
+recovered fast; a long grinding bear market (2000–02, 2008) might favour the
+filter more, and this data can't test that.
+
 ---
 
 ## What the experiments add up to
@@ -204,5 +270,8 @@ rose by only ~$10–15k, so they are a minor part of the gap.
   different entry, not only a different exit.
 - **Being fully invested isn't a constraint worth engineering around.** The
   breakouts skipped for cash are about as good as the positions already held.
+- **Filtering entries on high volatility gives up the rebounds.** The trades
+  it blocks were better than the ones it lets through; at best (shocks only)
+  it swaps some return for a slightly shallower drawdown.
 - **The long-only system remains the best of these variants — and it still
   trails SPY buy & hold** (+164% vs +353%).
