@@ -4,9 +4,16 @@ Strategy ideas tested against the Donchian system **as research only**. None
 of them is implemented in the app, and none was adopted: every one did worse
 than the long-only system it was compared with.
 
-The scripts were one-off files kept outside the repository, so they are not
-committed. This file records what each one did and what it found, so the
-experiments don't need to be re-run to know the answer.
+The scripts for experiments 1-6 were one-off files kept outside the repository,
+so they are not committed. This file records what each one did and what it
+found, so the experiments don't need to be re-run to know the answer.
+
+**Experiment 7 is different**: it is committed, under `backend/research/sweep/`,
+with tests in `backend/tests/test_sweep_*.py`. It needed a second simulator
+rather than a copy of the engine loop (limit orders, an intrabar stop *and*
+target, shorts, and 5-minute bars are all outside what `app/backtest/engine.py`
+does), and it is waiting on an intraday data feed, so throwing it away and
+writing the finding down was not an option.
 
 ## How every experiment was run
 
@@ -259,6 +266,133 @@ better from 2018, again inconsistent. 2016–2026 had two sharp crashes that
 recovered fast; a long grinding bear market (2000–02, 2008) might favour the
 filter more, and this data can't test that.
 
+
+## 7. Liquidity-sweep reversal — fading the break that fails
+
+*Package: `backend/research/sweep/` · 2026-09-17*
+
+**The premise.** Resting stops cluster just beyond obvious levels. Price reaches
+past a level to trigger them, then reverses, because the push was about filling
+orders rather than direction. The trade is a fade, never a breakout entry: wait
+for a level to break, close back inside, confirm with a market structure shift,
+enter on the retrace into the imbalance the shift left, stop beyond the sweep
+wick, target the next pool.
+
+**Why it is interesting next to Donchian.** The two systems disagree about the
+same bar at the same price. Donchian buys a close *above* the prior 55-day high;
+this fades a push above that high which *closes back under* it. The 55-day high
+is itself a textbook liquidity pool. So "does the break hold?" is the single
+question separating them, and it is answerable on the closing print.
+
+That also reframes what experiments 1-4 found. Donchian's short leg did not lose
+because shorting is hopeless — it lost because the *exit* is structurally broken
+(experiment 2: a short covers on a close above the 55-day high, so a cover
+within 55 sessions is necessarily above the entry). A short with its own stop
+and its own target does not inherit that defect, which is why this was worth
+building rather than assuming.
+
+### 7a. The daily-bar veto — no shorting, no new data
+
+Run through the real `run_backtest`, unmodified, on the usual universe and
+period. Both variants are pure transforms of the signal frame, so the engine,
+its costs, its sizing, its membership handling and its look-ahead guard are all
+the measured ones:
+
+- **skip** — drop a breakout if that level was swept and rejected within the
+  last *N* bars;
+- **exit** — sell a holding on the bar that sweeps and rejects.
+
+| Variant | Total | CAGR | Max DD | Sharpe | Trades | Win | PF |
+|---|---|---|---|---|---|---|---|
+| **No veto (baseline)** | **+164%** | 9.58% | −28.5% | **0.63** | 449 | 43.0% | 1.51 |
+| skip, 1-bar window | +164% | 9.58% | −28.5% | 0.63 | 449 | 43.0% | 1.51 |
+| skip, 2-bar window | +161% | 9.48% | −27.9% | 0.60 | 432 | 43.5% | 1.48 |
+| skip, 3-bar window | +125% | 7.96% | −32.3% | 0.53 | 410 | 43.2% | 1.32 |
+| skip, 5-bar window | +145% | 8.84% | −29.3% | 0.57 | 430 | 42.1% | 1.35 |
+| skip, 10-bar window | **+181%** | 10.24% | −29.2% | 0.66 | 408 | 42.4% | 1.44 |
+| skip, 20-bar window | +84% | 5.92% | −33.6% | 0.43 | 405 | 43.2% | 1.28 |
+| exit on the sweep | +125% | 7.94% | −30.4% | 0.55 | **2,306** | 58.4% | 1.21 |
+
+The 1-bar row is a parity check, not a result: a bar cannot both close above the
+level and close back under it, so a 1-bar window can veto nothing and must
+reproduce the baseline exactly. It does, to the cent.
+`test_a_one_bar_veto_window_reproduces_the_baseline_exactly` pins it.
+
+**Was the premise true at all?** Tagging each of the baseline's 449 trades by
+whether its level had been swept in the preceding *N* bars:
+
+| Window | Swept before: n / mean / median / win | Clean: n / mean / median / win | p |
+|---|---|---|---|
+| 3 | 105 · **+1.18%** · −0.77% · 46.7% | 344 · **+2.19%** · −1.90% · 41.9% | — |
+| 5 | 162 · **+1.44%** · −1.08% · 45.7% | 287 · **+2.24%** · −1.91% · 41.5% | 0.64 |
+| 10 | 254 · **+1.51%** · −1.49% · 43.7% | 195 · **+2.53%** · −1.75% · 42.1% | 0.54 |
+| 20 | 317 · **+1.41%** · −1.40% · 42.9% | 132 · **+3.27%** · −2.45% · 43.2% | — |
+
+(p: two-sided permutation test on the difference in means, 20,000 resamples.)
+
+**Finding.** The premise points the right way and the effect is not measurable.
+Previously-swept breakouts earned less on average at every window, consistently —
+but they also won *more often* and had a better median. The whole difference is
+in the right tail: the clean group holds the big winners, which is the same
+shape experiment 6 found for the volatility filter, and the same reason.
+Trend-following earns from a few long runs, and a rule that raises win rate by
+removing tail candidates trades away the thing that pays. At n = 162 against
+n = 287 with ~13-19pp standard deviations, p ≈ 0.54-0.64: **indistinguishable
+from noise.**
+
+The portfolio results say the same thing more bluntly. Across veto windows the
+effect changes sign — one setting better by 17pp, four worse by up to 80pp, with
+no monotonicity in between. That is the spike-not-plateau signature the spec
+warns about, and reading the +181% row as a result would be curve-fitting to one
+window length. The `exit` variant is a separate lesson: it quintuples the trade
+count, lifts the win rate from 43% to 58%, and still cuts return to +125%,
+because selling into every failed push cuts winners short.
+
+### 7b. The intraday strategy — built, tested, not yet measured
+
+The method proper is intraday: Asia (20:00-00:00 ET) and London (02:00-05:00 ET)
+session levels, 4H bias, 1H structure, entries in 5-minute imbalances. **Yahoo
+cannot supply it.** Measured 2026-09-17: hourly bars reach back ~2.4 years and
+15m/5m only ~70 days, and for US equities Yahoo returns regular hours only
+(09:30-16:00 ET), so the Asia and London sessions the premise is built on do not
+exist in the data at all. Only 24-hour futures carry them. A Databento 5-minute
+feed is coming; the harness and its seam (`sources.DatabentoSource`) are
+written and the strategy code is source-agnostic.
+
+What exists and is tested offline:
+
+- all five components, each event carrying a `known_at` stamp;
+- a simulator with limit-order fills, an intrabar stop *and* target, shorts,
+  borrow, and per-instrument contract specs;
+- 35 tests, including a truncation-invariance test that re-runs on a prefix of
+  the data and requires every earlier setup and closed trade to come out
+  identical.
+
+Four conventions are resolved **against** the strategy and are worth knowing
+before reading any number it eventually produces: a limit fills only on a trade
+*through* it, never a touch; a bar covering both stop and target resolves to the
+stop; a position is checked for its stop on its own entry bar; and a gap fills
+at the open.
+
+Two traps found while building it, both of which would have decided the result
+on their own:
+
+- **Notional basis points are the wrong cost model for futures.** One ES
+  contract at 4,950 controls $247,500 and costs ~$27.50 round-turn, not the $495
+  that 10bps of notional implies. Charged the wrong way, a 5-minute strategy
+  with a two-point stop pays ~60R per trade in fees and every result afterwards
+  is a report on the cost model. `instruments.py` exists for this.
+- **Sharpe must be computed on daily equity.** `app/backtest/metrics.py`
+  annualises with sqrt(252). Handing it a 5-minute curve inflates volatility by
+  about sqrt(78) and divides Sharpe by the same — a number that looks like a
+  finding and is an artefact of the bar size.
+
+A daily-bar configuration exists (`sources.daily_params`) and runs, but it is
+for smoke-testing only: a daily bar contains no sessions, and collapsing the
+bias, structure and execution timeframes onto one series removes the
+higher-timeframe separation the method depends on. The CLI prints that caveat
+above any number it produces in that mode.
+
 ---
 
 ## What the experiments add up to
@@ -273,5 +407,15 @@ filter more, and this data can't test that.
 - **Filtering entries on high volatility gives up the rebounds.** The trades
   it blocks were better than the ones it lets through; at best (shocks only)
   it swaps some return for a slightly shallower drawdown.
+- **Fading failed breakouts points the right way and does not measure.**
+  Breakouts at recently-swept levels did earn less, at every window tested — but
+  they also won more often, the gap is entirely in the right tail, and it is not
+  statistically separable from noise (p ≈ 0.54-0.64). Across veto windows the
+  effect changes sign, which is the signature of fitting rather than of an edge.
+- **Two of these findings now rhyme.** The volatility filter (6) and the sweep
+  veto (7a) both raise win rate, both cut total return, and both do it by
+  removing candidates that were more likely to produce the few long runs the
+  system earns from. Any future rule that filters Donchian entries should be
+  judged on the tail it removes, not on the win rate it buys.
 - **The long-only system remains the best of these variants — and it still
   trails SPY buy & hold** (+164% vs +353%).
