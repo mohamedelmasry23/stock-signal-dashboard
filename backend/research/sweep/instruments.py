@@ -86,6 +86,15 @@ FUTURES: Dict[str, Instrument] = {
 }
 
 
+# The Databento continuous series are named by root (`NQ`, `ES`), not by
+# Yahoo's `=F` suffix. Same contracts, same specs.
+for _root in ("ES", "NQ", "GC", "CL"):
+    FUTURES[_root] = Instrument(_root, *[getattr(FUTURES[f"{_root}=F"], f) for f in (
+        "tick_size", "point_value", "commission_per_unit", "slippage_ticks",
+        "cost_bps", "slippage_bps", "borrow_annual",
+    )])
+
+
 def resolve(symbol: str) -> Instrument:
     """The spec for a symbol, defaulting to the equity model.
 

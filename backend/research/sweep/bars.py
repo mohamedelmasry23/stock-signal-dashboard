@@ -71,6 +71,7 @@ SESSIONS: Dict[str, tuple[time, time]] = {
 #: `params.py`. Kept as a lookup so a typo is a KeyError at configuration
 #: time rather than a silently different timeframe at run time.
 TIMEFRAMES: Dict[str, pd.Timedelta] = {
+    "1min": pd.Timedelta(minutes=1),
     "5min": pd.Timedelta(minutes=5),
     "15min": pd.Timedelta(minutes=15),
     "30min": pd.Timedelta(minutes=30),

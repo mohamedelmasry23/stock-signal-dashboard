@@ -30,8 +30,17 @@ PARAMS = SweepParams(
 )
 
 
-def test_truncating_the_data_does_not_change_any_earlier_setup():
+@pytest.mark.parametrize("window", [12, 48])
+@pytest.mark.parametrize("fraction", [0.3, 0.45, 0.6, 0.75, 0.9])
+def test_truncating_the_data_does_not_change_any_earlier_setup(window, fraction):
     """The headline test: run on everything, then on a prefix.
+
+    This is a broad net for leaks that span many bars. It is NOT a good
+    detector for a short-span leak: the look-ahead found on NQ data lived
+    for a few bars around each setup, so random cut points almost never
+    landed inside one, and this test passed on the buggy code at every cut
+    tried. `test_every_setup_is_reproducible_from_the_data_at_its_go_live`
+    below is the precise check.
 
     Every setup the prefix run could have known about must come out
     identical — same entry, same stop, same target, same timestamps. If
@@ -39,11 +48,12 @@ def test_truncating_the_data_does_not_change_any_earlier_setup():
     an early setup differs from the prefix run's, and this fails.
     """
     frame = walk(12 * 24 * 60, seed=11, start="2026-01-05 00:00")
-    cut = len(frame) * 2 // 3
+    cut = int(len(frame) * fraction)
     prefix = frame.iloc[:cut]
+    params = PARAMS.replaced(sweep_window=window)
 
-    full = build_context("X", frame, PARAMS)
-    early = build_context("X", prefix, PARAMS)
+    full = build_context("X", frame, params)
+    early = build_context("X", prefix, params)
     horizon = prefix.index[-1]
 
     def keyed(context):
@@ -62,16 +72,75 @@ def test_truncating_the_data_does_not_change_any_earlier_setup():
     full_keys, early_keys = keyed(full), keyed(early)
     assert early_keys, "the prefix produced no setups — the test proves nothing"
 
+    # BOTH directions. The first version of this test only checked that
+    # every prefix setup also appeared in the full run — and so missed a
+    # real leak: setups the full run placed before the horizon on the
+    # strength of a structure shift AFTER it, which the prefix could not
+    # see and therefore never produced. A leak shows up as a setup the
+    # full run has and the prefix lacks, so that is the direction that
+    # matters most.
+    assert set(full_keys) == set(early_keys), (
+        f"full run only: {sorted(set(full_keys) - set(early_keys))[:3]}, "
+        f"prefix only: {sorted(set(early_keys) - set(full_keys))[:3]}"
+    )
+
     # `expires_at` is the one field that legitimately differs at the very
     # edge: it is the index N bars on, and the prefix run has no such bar.
-    # Compare the rest everywhere, and the expiry only where the prefix had
-    # room to compute it.
     for valid_from, early_value in early_keys.items():
-        assert valid_from in full_keys, f"the prefix invented a setup at {valid_from}"
         full_value = full_keys[valid_from]
         assert early_value[:4] == full_value[:4]
         if early_value[4] < horizon:
             assert early_value[4] == full_value[4]
+
+
+@pytest.mark.parametrize("window", [12, 48])
+def test_every_setup_is_reproducible_from_the_data_at_its_go_live(window):
+    """Causality, stated exactly: cut the data at each setup's `valid_from`.
+
+    A setup is a claim that everything needed to place this order existed
+    by `valid_from`. So a run on only the bars that had CLOSED by then must
+    produce the same order. Any setup that cannot be rebuilt that way used
+    a bar from its own future — which is precisely what the NQ look-ahead
+    did, and what random-cut truncation could not catch.
+    """
+    frame = walk(12 * 24 * 60, seed=11, start="2026-01-05 00:00")
+    params = PARAMS.replaced(sweep_window=window)
+    full = build_context("X", frame, params)
+    assert full.setups
+    # Every setup would be thorough but slow; a spread sample is enough to
+    # catch a systematic leak, which is the kind that matters.
+    step = max(1, len(full.setups) // 12)
+    for setup in full.setups[::step]:
+        available = frame[frame.index < setup.valid_from]      # bars closed by then
+        rebuilt = build_context("X", available, params)
+        matches = [
+            s for s in rebuilt.setups
+            if s.valid_from == setup.valid_from
+            and s.direction == setup.direction
+            and s.entry_limit == pytest.approx(setup.entry_limit)
+            and s.stop == pytest.approx(setup.stop)
+            and s.target == pytest.approx(setup.target)
+        ]
+        assert matches, (
+            f"setup live at {setup.valid_from} cannot be rebuilt from the bars "
+            f"closed by then — it used a later bar"
+        )
+
+
+@pytest.mark.parametrize("window", [12, 48])
+def test_no_setup_goes_live_before_its_structure_shift(window):
+    """The leak the symmetric truncation test exists to catch, pinned directly.
+
+    Found on real NQ data: 25% of setups went live before their shift, and
+    the damage grew with `sweep_window`, so both ends are checked.
+    """
+    frame = walk(12 * 24 * 60, seed=11, start="2026-01-05 00:00")
+    context = build_context("X", frame, PARAMS.replaced(sweep_window=window))
+    assert context.setups
+    for setup in context.setups:
+        assert setup.valid_from > setup.shift.known_at
+        assert setup.valid_from >= setup.gap.known_at
+        assert setup.valid_from >= setup.sweep.known_at
 
 
 def test_truncation_does_not_change_the_realised_trades():

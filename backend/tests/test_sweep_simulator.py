@@ -109,6 +109,20 @@ def test_a_position_is_stopped_on_its_entry_bar_when_the_bar_reaches_the_stop():
     assert [t.exit_reason for t in lenient.trades] == ["end_of_run"]
 
 
+def test_the_entry_bar_cannot_reach_the_target():
+    # Bar 2 dips to fill at 95 AND prints a high of 112 above the 110
+    # target. Whether that high came before or after the dip is unknowable,
+    # so the win is not credited on this bar.
+    frame = bars([
+        (100, 101, 99, 100),
+        (100, 112, 94.5, 100),
+        (100, 101, 99, 100),
+    ])
+    setup = make_setup(frame, "bullish", entry_limit=95.0, stop=90.0, target=110.0, valid_from_bar=0)
+    result = run(frame, [setup])
+    assert [t.exit_reason for t in result.trades] == ["end_of_run"]
+
+
 # --- convention 4: gaps fill at the open ----------------------------------
 
 def test_a_bar_that_gaps_through_the_stop_fills_at_the_open_not_the_stop():

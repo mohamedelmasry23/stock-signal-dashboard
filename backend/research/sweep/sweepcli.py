@@ -159,7 +159,7 @@ def run_sweep_modes(args: argparse.Namespace) -> int:
         format_sensitivity, format_summary,
     )
     from .simulate import SimConfig, run_simulation
-    from .sources import DailyCacheSource, DatabentoSource, daily_params
+    from .sources import DailyCacheSource, daily_params
     from .strategy import build_context
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -168,11 +168,12 @@ def run_sweep_modes(args: argparse.Namespace) -> int:
         return 1
 
     if args.source == "databento":
-        try:
-            DatabentoSource(dataset="GLBX.MDP3").load(symbols, args.start, args.end)
-        except NotImplementedError as exc:
-            print(f"[sweep] {exc}")
-            return 1
+        # The intraday evaluation has its own runner: futures need their own
+        # sizing, contract specs and R-denominated reporting, all of which
+        # live there rather than being bolted onto the daily path below.
+        from .futures_eval import main as futures_main
+
+        return futures_main(["--symbols", ",".join(symbols)])
 
     print(DAILY_CAVEAT)
     frames = DailyCacheSource().load(symbols, args.start, args.end)

@@ -348,50 +348,130 @@ window length. The `exit` variant is a separate lesson: it quintuples the trade
 count, lifts the win rate from 43% to 58%, and still cuts return to +125%,
 because selling into every failed push cuts winners short.
 
-### 7b. The intraday strategy — built, tested, not yet measured
+### 7b. The intraday strategy on NQ — measured, 2026-09-24
 
-The method proper is intraday: Asia (20:00-00:00 ET) and London (02:00-05:00 ET)
-session levels, 4H bias, 1H structure, entries in 5-minute imbalances. **Yahoo
-cannot supply it.** Measured 2026-09-17: hourly bars reach back ~2.4 years and
-15m/5m only ~70 days, and for US equities Yahoo returns regular hours only
-(09:30-16:00 ET), so the Asia and London sessions the premise is built on do not
-exist in the data at all. Only 24-hour futures carry them. A Databento 5-minute
-feed is coming; the harness and its seam (`sources.DatabentoSource`) are
-written and the strategy code is source-agnostic.
+*Data: Databento GLBX.MDP3 `ohlcv-1m`, `NQ.v.0`/`NQ.v.1` (volume roll),
+2022-01-02 to 2026-08-31, additive back-adjustment across 18 quarterly rolls.
+Runner: `python -m research.sweep.futures_eval --symbols NQ`.*
 
-What exists and is tested offline:
+**Data.** 1,650,684 one-minute bars, resampled to 330,210 five-minute bars;
+1H, 4H and daily are resampled from those, never fetched. All 18 rolls were
+priced the preferred way — the two contracts' closes at the same minute — with
+no fallbacks and no outsized gaps: from −3 points in March 2022 (rates near
+zero) up to 200-316 points as rates and price rose, which is what quarterly
+carry should look like. ES is not yet included (see below).
 
-- all five components, each event carrying a `known_at` stamp;
-- a simulator with limit-order fills, an intrabar stop *and* target, shorts,
-  borrow, and per-instrument contract specs;
-- 35 tests, including a truncation-invariance test that re-runs on a prefix of
-  the data and requires every earlier setup and closed trade to come out
-  identical.
+**Costs and sizing.** $1.25 commission plus one tick ($5) of slippage per side
+per contract, on entries as well as exits, although a limit entry would
+normally not slip. Sized at 1% of equity per trade on the stop distance, with
+the stock book's equity-fraction caps removed (a futures contract is margined,
+not paid for in full); fractional contracts stand in for Micro NQ. Every
+setup's realised risk was exactly 1.00%.
 
-Four conventions are resolved **against** the strategy and are worth knowing
-before reading any number it eventually produces: a limit fills only on a trade
-*through* it, never a touch; a bar covering both stop and target resolves to the
-stop; a position is checked for its stop on its own entry bar; and a gap fills
-at the open.
+| Run | Trades | Win | Mean R | Total R | PF | Max DD (R) | Return @1% | Max DD @1% |
+|---|---|---|---|---|---|---|---|---|
+| **Default rules (4H bias on)** | 147 | 26.5% | **+0.035** | +5.1 | 1.05 | −22.5 | +2.6% | −20.7% |
+| No bias filter | 283 | 23.3% | −0.105 | −29.8 | 0.87 | −37.9 | −28.5% | −33.5% |
+| Default, zero costs | 147 | 26.5% | +0.061 | +9.0 | 1.09 | −20.9 | +6.7% | −19.4% |
+| Default, double costs | 147 | 26.5% | +0.008 | +1.2 | 1.01 | −24.2 | −1.4% | −22.0% |
+| Long only (swept a low) | 61 | 31.1% | +0.247 | +15.1 | 1.36 | −7.2 | | |
+| Short only (swept a high) | 86 | 23.3% | −0.116 | −10.0 | 0.85 | −21.6 | | |
 
-Two traps found while building it, both of which would have decided the result
-on their own:
+Bootstrap 95% interval on the default's mean R: **[−0.258, +0.347]**, with 42%
+of resamples at or below zero. By year: +7.2R, −10.1R, −12.5R, +15.1R, +5.4R
+(2022-2026).
 
-- **Notional basis points are the wrong cost model for futures.** One ES
-  contract at 4,950 controls $247,500 and costs ~$27.50 round-turn, not the $495
-  that 10bps of notional implies. Charged the wrong way, a 5-minute strategy
-  with a two-point stop pays ~60R per trade in fees and every result afterwards
-  is a report on the cost model. `instruments.py` exists for this.
-- **Sharpe must be computed on daily equity.** `app/backtest/metrics.py`
-  annualises with sqrt(252). Handing it a 5-minute curve inflates volatility by
-  about sqrt(78) and divides Sharpe by the same — a number that looks like a
-  finding and is an artefact of the bar size.
+**Finding.** The strategy as specified has no measurable edge on NQ: +0.035R
+per trade, which is zero within any reasonable error and slightly negative once
+costs double. The 4H bias filter is the only component that clearly earns its
+place, since removing it takes the result from breakeven to −0.105R. **On the
+question that started this, shorts:** the short side lost (−0.116R), and the
+long side's +0.25R across 61 trades is well within noise over a period in
+which NQ roughly doubled. It is no better a short signal than Donchian's.
 
-A daily-bar configuration exists (`sources.daily_params`) and runs, but it is
-for smoke-testing only: a daily bar contains no sessions, and collapsing the
-bias, structure and execution timeframes onto one series removes the
-higher-timeframe separation the method depends on. The CLI prints that caveat
-above any number it produces in that mode.
+Funnel, which shows where the rules bite: 4,536 sweeps → 2,204 rejected by
+bias → 1,789 with no structure shift inside the window → 70 with no gap, 149
+under 1.5R, 63 with no target → 253 setups → 147 filled (73 skipped because a
+position was already open, 33 expired unfilled).
+
+#### A look-ahead bug, found by the sensitivity grid
+
+The first NQ run reported +0.163R per trade and +25R. It was wrong. A setup
+went live when its fair value gap completed, but the gap search can return a
+gap that formed **before** the structure shift — and 25% of setups did. Their
+limit orders were resting before the confirmation existed, and filled on
+pullbacks that had, in effect, been selected for being followed by a break of
+structure.
+
+What exposed it was the spec's rule to treat a suspiciously strong result as a
+bug first. Widening `sweep_window` from 12 to 48 bars took the result from +25R
+to **+248R** — a looser confirmation rule earning ten times more, which the
+premise gives no reason for. The damage scaled with the window because a wider
+window lets the order go live earlier.
+
+Fixed: a setup now goes live at the close of the bar after the shift, because
+that bar decides which gap is used. The default fell from +0.163R to +0.035R —
+**the whole of the apparent edge was the leak.** Two lessons, both now in the
+tests:
+
+- **Random-cut truncation tests cannot catch a short-span leak.** This one
+  lived for a few bars around each setup; the existing truncation test passed
+  on the buggy code at every cut point tried.
+  `test_every_setup_is_reproducible_from_the_data_at_its_go_live` cuts the
+  data at each setup's own go-live instant instead, and fails on the old code.
+- **Truncation has to be checked in both directions.** A leak shows up as a
+  setup the full run has and the prefix lacks. The original test checked only
+  the other direction.
+
+The fixed code was then checked on real data: 14 NQ setups spread across the
+whole period, at `sweep_window` 48, each rebuilt exactly from only the bars
+closed by its go-live time.
+
+#### The one region that is positive — a hypothesis, not a result
+
+After the fix, a wider structure-shift window is still positive, and forms a
+plateau rather than a spike:
+
+| `sweep_window` (5-min bars) | Trades | Win | Mean R | Total R | Max DD @1% | 95% CI on mean R |
+|---|---|---|---|---|---|---|
+| 12 (1 hour, the default) | 147 | 26.5% | +0.035 | +5.1 | −20.7% | [−0.26, +0.35] |
+| **24 (2 hours)** | 325 | 23.7% | **+0.276** | +89.6 | −34.0% | [−0.11, +0.77] |
+| 48 (4 hours) | 431 | 23.0% | +0.229 | +98.6 | −32.0% | [−0.11, +0.64] |
+| 96 (8 hours) | 459 | 22.2% | +0.190 | +87.2 | −36.1% | — |
+
+It is not established, for three reasons:
+
+- **The interval still includes zero** (about 10% of resamples at or below
+  it), and that is before discounting for having searched roughly 35 settings
+  to find it.
+- **It is two years, not five.** At window 24: 2022 +56.9R, 2023 −11.5R,
+  2024 −24.6R, 2025 +69.8R, 2026 −1.0R. The winning years are NQ's two most
+  violent — the 2022 bear market and the April 2025 tariff crash. That reads
+  as a volatility-regime effect, not a steady edge.
+- **The drawdowns are about a third of the account** at 1% risk, with losing
+  runs of 30-40R.
+
+The rest of the grid is flat around the default: `min_body_frac`,
+`min_fvg_ticks`, `min_r`, `fvg_entry_depth`, `entry_expiry_bars` and
+`level_max_age_days` all land between roughly −6R and +14R. `pivot_lookback`
+is a spike (+5R at 3, −25R at 2, −11R at 8).
+
+**Next test, fixed in advance.** ES is untouched data. The hypothesis to test
+there, with no further tuning, is **`sweep_window = 24`, every other parameter
+at its default**. If it holds on ES, it is worth pursuing; if it does not, the
+NQ result was the search finding noise. The ES pull stopped on a Databento
+billing limit (`402 account_insufficient_funds`) after its 2022 chunk. The
+cache makes the rerun cost only the missing ES chunks, roughly $8.
+
+#### Conventions a result from this harness depends on
+
+A limit entry fills only on a trade *through* the price, never a touch. A bar
+covering both stop and target resolves to the stop. On the bar a limit fills,
+the stop can trigger but the target cannot: whether the high came before the
+dip is unknowable, so that win is never credited. The stop half of that is
+exact rather than pessimistic, because for a long, a low below the stop passed
+through the higher limit first. Gaps fill at the open. And Sharpe comes from a
+daily equity curve, because `metrics.py` annualises with √252.
 
 ---
 
@@ -407,6 +487,14 @@ above any number it produces in that mode.
 - **Filtering entries on high volatility gives up the rebounds.** The trades
   it blocks were better than the ones it lets through; at best (shocks only)
   it swaps some return for a slightly shallower drawdown.
+- **The codified TJR/ICT sweep reversal has no edge on NQ as specified**
+  (+0.035R per trade over 147 trades, 2022-2026), and its short side lost. The
+  one positive region — a wider structure-shift window — is a lumpy,
+  two-good-years hypothesis that needs ES, untouched, before it means anything.
+- **A strategy made of chart features is a look-ahead trap.** The first NQ run
+  showed +25R, and all of it was a short-span leak that a random-cut
+  truncation test passed straight over. Cut at each setup's own go-live
+  instead; `test_every_setup_is_reproducible_from_the_data_at_its_go_live`.
 - **Fading failed breakouts points the right way and does not measure.**
   Breakouts at recently-swept levels did earn less, at every window tested — but
   they also won more often, the gap is entirely in the right tail, and it is not

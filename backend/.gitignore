@@ -23,3 +23,14 @@ watch.log
 data/watch_last_run.txt
 data/watch.launchd.out.log
 data/watch.launchd.err.log
+
+# Market data downloads (Databento bars, roll logs, any DBN/parquet cache).
+# Large, re-fetchable, and metered by the byte — never commit.
+#
+# Written as "everything in data/, except universes/" rather than a bare
+# `data/` because git cannot re-include a path inside an EXCLUDED
+# DIRECTORY. `data/` would exclude the directory itself, git would never
+# descend into it, and `!data/universes/` below would silently do nothing —
+# so a rebuilt sp500_constituents.csv could no longer be committed.
+data/*
+!data/universes/

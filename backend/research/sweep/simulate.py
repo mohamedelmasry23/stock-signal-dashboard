@@ -24,10 +24,13 @@ are resolved AGAINST the strategy:
    covers both, daily-or-coarser data cannot say which came first, and the
    strategy's own setups — a stop just beyond a sweep wick — are exactly
    the shape that makes the flattering answer wrong.
-3. **A position is checked for its stop on its own entry bar.** The daily
-   engine skips this, but there a fill is an opening print and here it is
-   a retracement into a gap mid-bar, with the rest of the bar still to
-   come.
+3. **On its entry bar, a position can be stopped but never reach its
+   target.** The stop half is not actually pessimistic, it is exact: for a
+   long, a bar whose low is below the stop passed through the (higher)
+   limit on the way down, so the fill came first. The target half is the
+   pessimistic one — the bar's high may have printed before the dip that
+   filled the order, and an OHLC bar cannot say which. Crediting it would
+   pay the strategy for bars where it was never in the trade.
 4. **Gaps fill at the open, not at the order price.** A bar that opens
    through the stop fills there — worse. A bar that opens through the
    target also fills at the open, which is better, and that asymmetry is
@@ -376,8 +379,11 @@ def run_simulation(
             )
         )
 
-    def resolve_exit(pos: OpenPosition, i: int) -> Optional[tuple]:
-        """(price, reason) if this bar closes the position, else None."""
+    def resolve_exit(pos: OpenPosition, i: int, entry_bar: bool = False) -> Optional[tuple]:
+        """(price, reason) if this bar closes the position, else None.
+
+        `entry_bar` disables the target — see convention 3.
+        """
         row = rows[pos.symbol][i]
         if row < 0:
             return None
@@ -388,7 +394,7 @@ def run_simulation(
 
         if pos.direction == "bullish":
             hit_stop = pos.stop is not None and low <= pos.stop
-            hit_target = pos.target is not None and high >= pos.target
+            hit_target = not entry_bar and pos.target is not None and high >= pos.target
             if hit_stop:  # convention 2: the stop wins ties
                 fill = open_ if np.isfinite(open_) and open_ < pos.stop else pos.stop
                 return float(fill), "stop"
@@ -398,7 +404,7 @@ def run_simulation(
             return None
 
         hit_stop = pos.stop is not None and high >= pos.stop
-        hit_target = pos.target is not None and low <= pos.target
+        hit_target = not entry_bar and pos.target is not None and low <= pos.target
         if hit_stop:
             fill = open_ if np.isfinite(open_) and open_ > pos.stop else pos.stop
             return float(fill), "stop"
@@ -601,7 +607,7 @@ def run_simulation(
                 pos = positions[symbol]
                 if pos.entry_bar != i:
                     continue
-                outcome = resolve_exit(pos, i)
+                outcome = resolve_exit(pos, i, entry_bar=True)
                 if outcome is None:
                     continue
                 price, reason = outcome

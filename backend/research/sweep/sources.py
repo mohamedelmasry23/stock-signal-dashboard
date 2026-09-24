@@ -12,12 +12,9 @@ of data, over the same universe every other experiment used. It is for
 smoke-testing the machinery and for the `donchian_veto` variant, which is
 a daily rule by construction.
 
-`DatabentoSource` is the real one and is deliberately NOT implemented
-here. The API key and the specification for how to pull, page and cache
-are coming in a separate brief, and guessing at them would produce an
-untested network adapter that looks finished. What this file does commit
-to is the CONTRACT that adapter must satisfy, below, so the strategy code
-above it does not move when it lands.
+`DatabentoSource` is the real one. It reads the continuous, back-adjusted
+1-minute CSVs that `fetch_futures_data.py` writes (that script owns every
+paid network call) and resamples them to the execution timeframe.
 
 ## The contract
 
@@ -37,6 +34,7 @@ A source returns, per symbol, a DataFrame with:
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Protocol
 
 import pandas as pd
@@ -111,41 +109,58 @@ class DailyCacheSource:
 
 
 class DatabentoSource:
-    """Intraday bars from Databento. Not implemented yet, on purpose.
+    """Intraday futures bars produced by `fetch_futures_data.py`.
 
-    Everything above this line runs without it, and the moment it exists
-    the only change needed is which source the CLI constructs.
+    That script owns everything that costs money or touches the network —
+    pulling, paging, caching, rolling and back-adjusting. This class only
+    reads its output, so a backtest can never trigger a paid request.
 
-    What it must do when written:
-
-      1. Authenticate from `DATABENTO_API_KEY` in the environment — never
-         a literal in this file, and never a value committed anywhere near
-         `backend/data/`.
-      2. Pull OHLCV at ONE resolution (the finest the run needs) for each
-         symbol, paging over the requested window.
-      3. Cache to disk in its own SQLite file, following the isolation
-         rule in `app/backtest/prices.py`: its own engine, its own bare
-         MetaData, never attached to `app.database.Base`, and under
-         `data/` so the existing gitignore covers it. Intraday history is
-         large and metered; refetching it per run is both slow and billed.
-      4. Return frames satisfying the contract in this module's docstring
-         — in particular, DROP the final bar if the window ends inside a
-         session. The daily pipeline already learned this one the hard
-         way; see `drop_in_progress_bar()` and the note in CLAUDE.md.
-      5. Map continuous-contract symbols explicitly. A futures backtest
-         that silently switches contract months records the roll gap as a
-         return, which is why `app/backtest/universe.py` excludes futures
-         from the daily runs altogether.
+    Bars arrive at 1 minute and are resampled here to the strategy's
+    execution timeframe (5 minutes by default). Resampling once, from the
+    finest feed, is the same rule `bars.build_timeframes` applies upward:
+    every coarser bar is derived, none is fetched separately, so no
+    timeframe can disagree with another about what happened.
     """
 
-    def __init__(self, dataset: str, schema: str = "ohlcv-1m", api_key: Optional[str] = None):
-        self.dataset = dataset
-        self.schema = schema
-        self.api_key = api_key
+    def __init__(self, data_dir: Optional[Path] = None, execution_timeframe: str = "5min",
+                 day_boundary_hour: int = 18):
+        from .fetch_futures_data import DATA_DIR
 
-    def load(self, symbols: Iterable[str], start: date, end: date) -> Dict[str, pd.DataFrame]:
-        raise NotImplementedError(
-            "DatabentoSource is a placeholder. The pull/page/cache design is "
-            "specified in this module's docstring and is waiting on the API "
-            "key and the backtest brief. Use DailyCacheSource until then."
-        )
+        self.data_dir = Path(data_dir) if data_dir else DATA_DIR
+        self.execution_timeframe = execution_timeframe
+        self.day_boundary_hour = day_boundary_hour
+
+    def path(self, symbol: str) -> Path:
+        return self.data_dir / f"{symbol}.csv"
+
+    def load_raw(self, symbol: str) -> pd.DataFrame:
+        """The 1-minute file exactly as written, as a normalised frame."""
+        path = self.path(symbol)
+        if not path.exists():
+            raise FileNotFoundError(
+                f"{path} does not exist. Fetch it first:\n"
+                f"    ../.venv/bin/python -m research.sweep.fetch_futures_data --roots {symbol}"
+            )
+        frame = pd.read_csv(path)
+        # utc=True, then the offsets in the file decide the instant. Parsing
+        # as local time would merge November's two 01:xx hours.
+        index = pd.to_datetime(frame.pop("timestamp"), utc=True, format="ISO8601")
+        frame.index = pd.DatetimeIndex(index)
+        frame = frame.rename(columns=str.capitalize)
+        return normalize_bars(frame)
+
+    def load(self, symbols: Iterable[str], start: Optional[date] = None,
+             end: Optional[date] = None) -> Dict[str, pd.DataFrame]:
+        from .bars import resample_ohlc
+
+        out: Dict[str, pd.DataFrame] = {}
+        for symbol in symbols:
+            bars = self.load_raw(symbol)
+            if start is not None:
+                bars = bars[bars.index >= pd.Timestamp(start, tz="UTC")]
+            if end is not None:
+                bars = bars[bars.index < pd.Timestamp(end, tz="UTC")]
+            if self.execution_timeframe != "1min":
+                bars = resample_ohlc(bars, self.execution_timeframe, self.day_boundary_hour)
+            out[symbol] = bars
+        return out

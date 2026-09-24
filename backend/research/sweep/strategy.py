@@ -16,10 +16,26 @@ which component actually decides the trade count.
 
 ## The timestamps
 
-`valid_from` is the gap's own `known_at` — candle 3's close. Every price
-in the setup was derived from bars at or before that instant, and the
-simulator will not look at the setup before it. That single field is where
-this module's half of the look-ahead contract lives.
+`valid_from` is the close of the bar AFTER the structure shift. The gap
+search looks at bars up to that one — it is the bar that completes the
+shift candle's own gap, the usual shape — so which gap gets chosen is not
+final until it has closed, even when the answer is an earlier gap. That is
+also how the setup is traded: see the shift candle close, wait one candle
+to see whether it leaves an imbalance, then place the limit. A shift on
+the very last bar of the data is therefore undecided, not a setup. The simulator will not look at a setup before this instant,
+and that single field is where this module's half of the look-ahead
+contract lives.
+
+The first version used the gap's `known_at` alone. That was a look-ahead
+bug, and a flattering one: the gap search may return a gap that completed
+BEFORE the shift (an earlier gap in the same leg), and 25% of NQ setups
+did. Their limit orders then rested before the confirmation existed and
+filled on pullbacks that were selected, in effect, for being followed by a
+break of structure. It scaled with `sweep_window` — the wider the window,
+the earlier the order could go live — which is how it was found: the
+sensitivity grid showed a looser confirmation rule earning ten times more
+(+25R at 12 bars, +248R at 48), and a looser rule should not be better.
+`test_no_setup_goes_live_before_its_structure_shift` pins it.
 
 ## Where the target comes from
 
@@ -40,7 +56,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from .bars import Timeframes, build_timeframes
+from .bars import Timeframes, build_timeframes, known_at
 from .bias import BiasSeries, Direction, build_bias
 from .fvg import FairValueGap, find_entry_gap
 from .levels import LevelBook, LiquidityLevel, build_levels
@@ -169,6 +185,10 @@ def _setups_from(
         if shift is None:
             rejections["no_structure_shift"] += 1
             continue
+        if shift.bar_index + 1 > last:
+            # The bar that decides which gap to use does not exist yet.
+            rejections["undecided_at_data_end"] += 1
+            continue
 
         gap = find_entry_gap(execution, sweep.direction, sweep.bar_index, shift.bar_index, params)
         if gap is None:
@@ -196,7 +216,10 @@ def _assemble(
 ):
     """A setup, or the name of the rule that rejected it."""
     entry = gap.entry_limit(params.fvg_entry_depth)
-    valid_from = gap.known_at
+    # The gap choice is final only once the bar after the shift has closed.
+    # See "The timestamps" in the module docstring.
+    live_bar = shift.bar_index + 1
+    valid_from = known_at(index[live_bar], params.execution_timeframe)
 
     if sweep.direction == "bullish":
         stop = sweep.extreme - params.stop_buffer
@@ -227,7 +250,10 @@ def _assemble(
     if reward_risk < params.min_r:
         return "below_min_r"
 
-    expires_at = index[min(gap.bar_index + params.entry_expiry_bars, last)]
+    # Counted from when the order went live, not from when the gap formed:
+    # otherwise a gap that predates its shift could expire before the
+    # order was ever allowed to rest.
+    expires_at = index[min(live_bar + params.entry_expiry_bars, last)]
 
     return Setup(
         direction=sweep.direction,

@@ -1,0 +1,18 @@
+# Extra dependencies for research/ only — the app and its tests do not
+# need these, and `app/` must never import them.
+#
+# Install into the repo-root .venv:
+#     ../.venv/bin/python -m pip install -r requirements-research.txt
+#
+# databento is the only one that costs money to use. The API key lives in
+# the repo-root .env (git-ignored) and is read by
+# research/sweep/fetch_futures_data.py — never passed on a command line.
+# The harness reuses app code on purpose (metrics, the Donchian signal,
+# the price cache) rather than copying it, so it needs the app's own deps.
+-r requirements.txt
+databento
+pandas
+numpy
+pyyaml
+pytest
+matplotlib
