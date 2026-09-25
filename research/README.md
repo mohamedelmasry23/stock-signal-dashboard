@@ -473,10 +473,133 @@ exact rather than pessimistic, because for a long, a low below the stop passed
 through the higher limit first. Gaps fill at the open. And Sharpe comes from a
 daily equity curve, because `metrics.py` annualises with √252.
 
+## 8. Three short strategies built on the Donchian levels
+
+*Package: `backend/research/donchian_shorts/` · runner:
+`python -m research.donchian_shorts.evaluate` · 2026-09-25*
+
+Three short strategies meant to complement the 55-day-high / 20-day-low long
+system, each written up in prose and turned into rules here:
+
+- **S1 Macro 20-day breakdown** (trend-following). Short at the next open after
+  a close crosses below the prior 20-day low, provided there was no new 55-day
+  high in the last 20 sessions. Stop at the 55-day high, checked intraday and
+  trailing down daily. No target.
+- **S2 55-day fakeout / Turtle Soup** (counter-trend). Price trades above the
+  prior 55-day high, then closes back below that same line within 3 days (the
+  breakout day counts as day 0). Stop 1¢ above the breakout's peak; target the
+  20-day low.
+- **S3 Pullback short inside the channel.** After a 20-day-low breakdown, with
+  price at least 3 ATR below the 55-day high: a rally on lighter volume back to
+  within ¼ ATR of the broken line, then a bearish engulfing or shooting-star
+  candle that closes below it. Stop 1¢ above the rally high; target the low the
+  rally started from. The prose gives no target, so that one is a choice.
+
+Every other place the prose needed interpreting is listed in `rules.py`, and
+the sensitivity table below moves each one.
+
+**Method.** The same universe, period, costs and borrow as experiments 1-6. The
+engine reproduces `run_backtest` for the longs — checked on the real universe
+before anything is printed, and it matched to $0.0000 — and adds shorts to the
+same account. Each short is sized at 1% risk on its actual stop distance and
+reserves its full notional as collateral (no margin). Stops and targets are
+checked intraday, including on the entry bar, since the fill is that bar's
+open. A bar reaching both resolves to the stop; an open through either fills
+at the open. When a Donchian long and a short compete for the same slot on the
+same day, the long is funded first.
+
+| Run | Total | CAGR | Max DD | Sharpe | Shorts | Short win | Short P&L | Long P&L |
+|---|---|---|---|---|---|---|---|---|
+| **Donchian long only** | **+164%** | 9.6% | −28.5% | **0.63** | — | — | — | $163k |
+| SPY buy & hold | +355% | 15.4% | −33.7% | 0.89 | | | | |
+| S1 alone | −70% | −10.6% | −69.9% | −0.72 | 698 | 27% | −$70k | — |
+| S1 in one book with the longs | +47% | 3.7% | −35.5% | 0.32 | 136 | 22% | −$46k | $92k |
+| S1 as a 50/50 sleeve | +47% | 3.7% | **−23.0%** | 0.36 | | | | |
+| S2 alone | −97% | −28.3% | −97.1% | −1.75 | 5,009 | 6% | −$97k | — |
+| S2 in one book with the longs | +140% | 8.6% | −32.4% | 0.58 | 85 | 27% | +$1k | $139k |
+| S2 as a 50/50 sleeve | +33% | 2.7% | −30.3% | 0.26 | | | | |
+| S3 alone | −88% | −18.3% | −88.3% | −2.03 | 2,448 | 38% | −$88k | — |
+| S3 in one book with the longs | +126% | 8.0% | −31.8% | 0.54 | 116 | 30% | −$21k | $147k |
+| S3 as a 50/50 sleeve | +38% | 3.1% | −27.4% | 0.29 | | | | |
+
+Short book alone, by year, beside Donchian:
+
+| Year | Donchian | S1 | S2 | S3 |
+|---|---|---|---|---|
+| 2016 | +14.4% | −9.6% | −21.7% | −18.0% |
+| 2017 | +21.1% | +0.4% | −42.8% | −13.5% |
+| **2018** | **−19.5%** | **+5.3%** | −6.2% | −18.0% |
+| 2019 | +29.1% | −22.8% | −48.0% | −14.1% |
+| 2020 | +0.1% | −18.3% | −17.7% | −14.6% |
+| 2021 | +51.3% | −33.0% | −36.7% | −15.2% |
+| **2022** | **−12.9%** | **+9.9%** | −27.7% | −28.0% |
+| 2023 | +3.2% | −6.3% | −24.3% | −14.7% |
+| 2024 | +26.2% | −19.7% | −33.7% | −5.7% |
+| 2025 | +4.7% | −6.5% | −20.9% | −29.4% |
+| 2026 | +2.0% | −2.7% | −9.4% | −20.7% |
+
+Sensitivity — each judgement call moved, the rest at default:
+
+| Rule | Setting | Alone | Sharpe | Shorts | One book | Sharpe |
+|---|---|---|---|---|---|---|
+| S1 | default (stall 20) | −70% | −0.72 | 698 | +47% | 0.32 |
+| S1 | no stall filter | −68% | −0.69 | 673 | +12% | 0.15 |
+| S1 | stall 10 | −72% | −0.77 | 680 | +51% | 0.33 |
+| S1 | stall 40 | −76% | −0.82 | 724 | +61% | 0.37 |
+| S2 | default (3-day window) | −97% | −1.75 | 5,009 | +140% | 0.58 |
+| S2 | same-day failures only | −99% | −2.08 | 5,476 | +159% | 0.63 |
+| S2 | 1-day window | −98% | −2.01 | 5,153 | +151% | 0.61 |
+| S2 | 5-day window | −98% | −1.83 | 4,788 | +101% | 0.49 |
+| S2 | stop ¼ ATR above the peak | −95% | −1.68 | 3,461 | +104% | 0.50 |
+| S2 | stop ½ ATR above the peak | −88% | −1.20 | 2,178 | +111% | 0.49 |
+| S3 | default (3 ATR, ¼ ATR touch, volume on) | −88% | −2.03 | 2,448 | +126% | 0.54 |
+| S3 | 2 ATR below the high | −88% | −2.03 | 2,474 | +96% | 0.46 |
+| S3 | 5 ATR below the high | −80% | −1.93 | 1,699 | +133% | 0.55 |
+| S3 | touch within 0.1 ATR | −83% | −1.90 | 2,110 | +148% | 0.59 |
+| S3 | touch within 0.5 ATR | −92% | −2.14 | 2,843 | +136% | 0.56 |
+| S3 | no volume filter | −96% | −1.94 | 3,991 | +163% | 0.62 |
+
+**Finding.** None of the three works, as a strategy or as a complement.
+
+- **All three lost on their own, in every variant** (−68% to −99%). No
+  setting of any judgement call came close to breakeven.
+- **Adding any of them to the Donchian book lowered its return.** Across all
+  16 one-book variants the best were +163% and +159%, against +164% for the
+  longs alone — never better, only at best neutral. The shorts also crowd the
+  longs out of capital: long profit fell from $163k to $92k with S1.
+- **The negative correlation is the market, not a hedge.** S1 and S2's
+  monthly returns run at −0.55 and −0.61 against Donchian, but that is what
+  any short book does in a rising market, and it only helps if the stream
+  makes money. S1 did make money in 2018 and 2022, the two years Donchian
+  lost — +5% and +10% — then lost 20-33% in the bull years. As a sleeve it cut
+  the drawdown from −28.5% to −23% at a cost of 117 points of return and half
+  the Sharpe.
+- **S2's failure has a specific shape.** A stop a cent above the breakout
+  peak is usually hit the same day — 61% of fakeout shorts were — because
+  S&P breakouts that close back under the line tend to retest the high
+  rather than reverse. That matches experiment 7a from the other side:
+  breakouts at recently-swept levels won *more* often as longs. The average
+  R (−27) is an artefact: when the next open lands just under the stop, the
+  risk is tiny (10% of trades risked under 0.11% of price, less than the
+  round-trip cost), so the loss becomes a huge multiple. The median trade is
+  −1.35R.
+
+**Caveat.** 2016-2026 is one long bull market (SPY +355%) with two sharp,
+fast-recovering declines. A long grinding bear market (2000-02, 2008) might
+treat S1 better, since it was the only rule to make money in both down years.
+The price cache starts in 2016, so this data cannot test that.
+
 ---
 
 ## What the experiments add up to
 
+- **Seven short rules have now been tested against this system and all
+  lost** — breakdown shorts (1-4, 8 S1), fakeouts at the 55-day high (8 S2),
+  pullback shorts (8 S3) and the intraday sweep reversal on NQ (7b). The
+  pattern is consistent across all of them: in 2016-2026, a stock that fails
+  at a high or breaks a low bounced about as often as it followed through.
+  Negative correlation with the long book is not enough to justify a short
+  leg that loses money on average.
 - **Shorting after Donchian breakdowns lost money everywhere it was tried** —
   individual stocks and SPY, with slow or fast covers, with or without costs.
   In 2016–2026 a stock breaking below its 20-day low was about as likely to
