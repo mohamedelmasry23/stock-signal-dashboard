@@ -9,7 +9,6 @@ is where a mistake would silently change which companies a backtest sees.
 from pathlib import Path
 
 from app.backtest.__main__ import resolve_costs, resolve_universe, universe_label
-from app.pipeline import rsi_scan_universe
 from app.config import is_point_in_time
 from app.backtest.universe import load_membership, save_membership
 
@@ -82,54 +81,9 @@ def test_the_stored_label_is_what_marks_a_run_point_in_time():
     assert not is_point_in_time("")
 
 
-def test_rsi_scans_baskets_plus_whatever_you_hold():
-    """The RSI universe is deliberately narrower than the pipeline's, twice
-    over: single companies lost badly (8.3% vs SPY's 353%), and the
-    commodity funds cost Sharpe 0.61 -> 0.43. Holdings are unioned in
-    regardless of type — anything you own must still get an exit signal,
-    which is the one thing this page can never silently stop doing."""
-    universe = rsi_scan_universe(held=["NVDA", "GLD"])
-
-    assert "NVDA" in universe          # held single stock — managed, never suggested
-    assert "GLD" in universe           # held commodity fund — same
-    assert "XLF" in universe           # sector ETF
-    assert "VOO" in universe           # broad index
-
-    # Neither is scanned when it isn't held. AAPL pins the single-stock
-    # narrowing, UGA the commodity one — without these the filters could
-    # silently become no-ops.
-    assert "AAPL" not in rsi_scan_universe(held=[])
-    assert "UGA" not in rsi_scan_universe(held=[])
-    assert "GLD" not in rsi_scan_universe(held=[])
-
-
-def test_spy_is_not_tradeable_by_the_rsi_universe():
-    """SPY is the benchmark, and `python -m app.backtest` pops the
-    benchmark out of the tradeable set — so a page suggesting SPY would be
-    recommending a ticker the backtest structurally cannot trade. VOO
-    carries the same exposure and appears in both."""
-    assert "SPY" not in rsi_scan_universe(held=[])
-    assert "VOO" in rsi_scan_universe(held=[])
-
-
-def test_index_etfs_resolve_as_a_backtest_universe():
-    """The live scan and the backtest have to agree on what the universe
-    IS, or the measurement describes a different system."""
-    tradeable, excluded = resolve_universe("index_etfs,commodities")
-
-    assert set(tradeable) >= {"VOO", "XLF", "TLT", "GLD"}
-    assert "AAPL" not in tradeable
-    assert excluded == ["GC=F"]  # futures roll gaps are not returns
-
-
-def test_costs_default_to_the_universe_being_traded():
-    """A single-stock rate applied to penny-spread index funds was the
-    largest distortion in the RSI measurement — 8.4% at 10bps per side
-    against 87.4% at a rate those instruments actually trade at. An
-    explicit flag still wins."""
-    assert resolve_costs("index_etfs") == (0.75, 0.75)
-    assert resolve_costs("index_etfs,commodities") == (0.75, 0.75)
+def test_costs_default_to_five_and_five_unless_overridden():
+    """5 bps commission + 5 bps slippage per side by default; an explicit
+    flag always wins."""
     assert resolve_costs("sp500,etfs") == (5.0, 5.0)
-    # Explicit values are never overridden by the universe.
-    assert resolve_costs("index_etfs", cost_bps=5.0, slippage_bps=5.0) == (5.0, 5.0)
+    assert resolve_costs("commodities", cost_bps=1.0, slippage_bps=2.0) == (1.0, 2.0)
     assert resolve_costs("sp500", cost_bps=0.0)[0] == 0.0

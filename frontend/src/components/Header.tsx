@@ -36,9 +36,7 @@ export function Header({
   /** Named by the caller rather than derived from the route, so the header
    *  stays presentational and knows nothing about routing. */
   strategyLabel?: string
-  /** When the showing strategy's signals were computed. Passed in because
-   *  both strategies are written by one pipeline run but tracked
-   *  separately — the header has to report the page you're actually on. */
+  /** When the signals were last computed. */
   lastUpdated?: string | null
 }) {
   const { theme, toggle } = useTheme()

@@ -1,9 +1,7 @@
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { cn } from './ui'
 
-/** The day's move as a coloured, arrowed percentage. Shared by both
- *  strategy pages — a position's daily move doesn't depend on which
- *  strategy is looking at it. */
+/** The day's move as a coloured, arrowed percentage. */
 export function DayChange({ pct, live = false }: { pct: number | null; live?: boolean }) {
   if (pct === null) {
     return (

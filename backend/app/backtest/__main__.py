@@ -21,18 +21,10 @@ from ..config import DATA_DIR
 from ..pipeline import (
     get_commodity_tickers,
     get_extra_equity_tickers,
-    get_index_etf_tickers,
     get_sp500_tickers,
 )
-from ..signals import RSI_ENTRY_THRESHOLD, RSI_EXIT_THRESHOLD
 from .benchmark import buy_and_hold
-from .config import (
-    DEFAULT_RSI_EXIT_MA_PERIOD,
-    DEFAULT_RSI_PERIOD,
-    DEFAULT_RSI_TREND_PERIOD,
-    DEFAULT_TARGET_POSITIONS,
-    BacktestConfig,
-)
+from .config import DEFAULT_TARGET_POSITIONS, BacktestConfig
 from .engine import build_calendar, run_backtest
 from .membership import MembershipSchedule, load_interval_schedule, load_schedule
 from .prices import load_prices
@@ -113,14 +105,7 @@ def resolve_universe(spec: str, start: date = DEFAULT_START) -> tuple[list[str],
         tickers += get_extra_equity_tickers()
     if names & {"commodities", "all"}:
         tickers += get_commodity_tickers()
-    # The RSI(2) scan universe. Deliberately NOT folded into `etfs`: that
-    # name is part of the stored Donchian runs' identity, and quietly
-    # widening it would change what `sp500,etfs` means, invalidating the
-    # comparison those runs exist for.
-    if names & {"index_etfs", "all"}:
-        tickers += get_index_etf_tickers()
-
-    unknown = names - {"sp500", "etfs", "commodities", "index_etfs", "all"}
+    unknown = names - {"sp500", "etfs", "commodities", "all"}
     for name in unknown:
         tickers.append(name.upper())
 
@@ -145,22 +130,9 @@ def universe_label(spec: str) -> str:
 
 
 def resolve_costs(spec: str, cost_bps=None, slippage_bps=None) -> tuple[float, float]:
-    """Per-side commission and slippage, defaulted to fit the universe.
-
-    A single blanket rate cannot be right for both a 500-name single-stock
-    universe and a handful of penny-spread index funds, and the difference
-    is not marginal: costed at the single-stock 10bps per side, the RSI
-    basket strategy returned 8.4%; at a rate appropriate to SPY/QQQ/XLF it
-    returned 87.4% over the same bars. That one assumption was the largest
-    single distortion in the measurement.
-
-    5+5 stays the default everywhere else. It is deliberately NOT applied
-    per-ticker: the commodity funds in this universe (PALL, UGA, CPER) are
-    far thinner than the index ETFs, so a blanket low rate flatters them —
-    which is why the report prints the rate it used.
-    """
-    liquid = "index_etfs" in {p.strip().lower() for p in spec.split(",")}
-    default = 0.75 if liquid else 5.0
+    """Per-side commission and slippage: 5 + 5 bps unless overridden. The
+    report prints the rate it used."""
+    default = 5.0
     return (
         default if cost_bps is None else cost_bps,
         default if slippage_bps is None else slippage_bps,
@@ -172,7 +144,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--start", type=lambda s: date.fromisoformat(s), default=DEFAULT_START)
     p.add_argument("--end", type=lambda s: date.fromisoformat(s), default=date.today())
     p.add_argument("--universe", default="commodities,etfs",
-                   help="sp500 | etfs | index_etfs | commodities | all | file:<list> | "
+                   help="sp500 | etfs | commodities | all | file:<list> | "
                         "events:<csv> | constituents:<csv> | comma-separated tickers. "
                         f"S&P backtests use {SP500_CONSTITUENTS},etfs")
     p.add_argument("--index-overlay", action="store_true",
@@ -184,17 +156,14 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--benchmark", default="SPY")
     p.add_argument("--equity", type=float, default=100_000.0)
     p.add_argument("--risk", type=float, default=0.01)
-    # Left as None so an unset flag can pick up a universe-appropriate
-    # default; see `resolve_costs`. Pass either explicitly to override.
+    # Left as None so `resolve_costs` supplies the default.
     p.add_argument("--cost-bps", type=float, default=None)
     p.add_argument("--slippage-bps", type=float, default=None)
     p.add_argument("--fill", choices=["next_open", "next_close"], default="next_open")
     p.add_argument("--max-positions", type=int, default=20)
     p.add_argument("--max-position-frac", type=float, default=0.20)
     p.add_argument("--sizing", choices=["risk", "equal_weight"], default=None,
-                   help="how much to buy. Defaults to whatever the chosen strategy "
-                        "is actually traded with: risk-based for Donchian, "
-                        "equal-weight for RSI(2)")
+                   help="how much to buy (default: risk-based, as the dashboard sizes)")
     p.add_argument("--target-positions", type=int, default=DEFAULT_TARGET_POSITIONS,
                    help="equal-weight slots: each position targets 1/N of equity")
     p.add_argument("--cash-yield", type=float, default=0.0,
@@ -204,17 +173,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--price-mode", choices=["adjusted", "raw"], default="adjusted")
     p.add_argument("--risk-free", type=float, default=0.0,
                    help="annual risk-free rate for Sharpe/Sortino. The default of 0 "
-                        "flatters any strategy that sits in cash — which RSI(2) does "
-                        "most of the time, so set it deliberately when comparing")
-    # RSI(2) overrides, for sensitivity work. Defaults are Connors' published
-    # values; changing them to maximise a result turns an out-of-sample
-    # parameter into a fitted one, so vary them to check the shape of the
-    # surface, not to pick a winner.
-    p.add_argument("--rsi-period", type=int, default=DEFAULT_RSI_PERIOD)
-    p.add_argument("--rsi-entry", type=float, default=RSI_ENTRY_THRESHOLD)
-    p.add_argument("--rsi-exit", type=float, default=RSI_EXIT_THRESHOLD)
-    p.add_argument("--rsi-trend", type=int, default=DEFAULT_RSI_TREND_PERIOD)
-    p.add_argument("--rsi-exit-ma", type=int, default=DEFAULT_RSI_EXIT_MA_PERIOD)
+                        "flatters any strategy that sits in cash, so set it "
+                        "deliberately when comparing")
     p.add_argument("--no-fractional", action="store_true")
     p.add_argument("--min-notional", type=float, default=100.0)
     p.add_argument("--both-variants", action="store_true",
@@ -294,9 +254,6 @@ def main(argv=None) -> int:
             strategy=args.strategy,
             sizing_mode=sizing, target_positions=args.target_positions,
             cash_yield_annual=args.cash_yield,
-            rsi_period=args.rsi_period, rsi_entry_threshold=args.rsi_entry,
-            rsi_exit_threshold=args.rsi_exit, rsi_trend_period=args.rsi_trend,
-            rsi_exit_ma_period=args.rsi_exit_ma,
             use_atr_stop=use_stop, cost_bps=cost_bps, slippage_bps=slippage_bps,
             fill=args.fill, max_positions=args.max_positions,
             max_position_fraction=args.max_position_frac, min_notional=args.min_notional,

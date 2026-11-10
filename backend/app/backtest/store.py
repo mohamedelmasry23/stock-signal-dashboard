@@ -89,11 +89,8 @@ def save_result(result: BacktestResult, universe_label: str = "") -> int:
         # the dashboard shows the latest, and keeping every historical run
         # would grow the database without anything ever reading them.
         #
-        # `strategy` is load-bearing in this filter, not cosmetic. Without
-        # it, saving an RSI run over `sp500,etfs` would delete the Donchian
-        # run of the same universe — destroying the very result it exists
-        # to be compared against. Older rows predate the column and are
-        # NULL, which is why the comparison coalesces to "donchian".
+        # Older rows predate the `strategy` column and are NULL, which is
+        # why the comparison coalesces to "donchian".
         stale = (
             db.query(BacktestRun)
             .filter(

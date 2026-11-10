@@ -589,55 +589,6 @@ fast-recovering declines. A long grinding bear market (2000-02, 2008) might
 treat S1 better, since it was the only rule to make money in both down years.
 The price cache starts in 2016, so this data cannot test that.
 
-## 9. Donchian + RSI(2): a dip-buyer as the complement, not a short
-
-*Pre-registered 2026-09-25. This plan was committed before any result was
-computed; the results section below it was added afterwards, and the plan
-was not edited.*
-
-**Why this, after experiment 8.** Seven short rules lost for the same reason:
-in 2016-2026, a stock that broke down or failed at a high bounced about as
-often as it followed through. If dips reliably bounce, the natural partner for
-a breakout system is a strategy that BUYS them. The dashboard already runs one:
-RSI(2), measured on its own at +87%, Sharpe 0.61, max drawdown −9.2%, invested
-about 19% of the time. It buys at the opposite moment from Donchian (oversold
-dips, not new highs), so it may make its money at different times — which is
-the property a complement needs, alongside making money at all.
-
-**What is run.** Nothing is tuned; both strategies run exactly as the
-dashboard configures them.
-
-- Donchian: `constituents:…sp500_constituents.csv,etfs`, 5+5 bps per side, the
-  +164% headline configuration.
-- RSI(2): `index_etfs`, 0.75+0.75 bps per side, Connors' published thresholds,
-  risk sizing — the +87% configuration.
-- Idle cash earns **2% a year in both** (the RSI headline's assumption, now
-  applied to both sides so neither is flattered). Repeated at 0% as a check,
-  because RSI sits in cash ~80% of the time and interest could be a large
-  share of what it adds.
-- Combined as **two separate accounts**, rebalanced to target weights on the
-  first trading day of each year. Never-rebalanced reported as a check.
-- Weights, Donchian/RSI: 100/0, 80/20, 70/30, 50/50, 30/70, 0/100 — all
-  reported, whatever they show.
-
-**What counts as success — all four, decided now:**
-
-1. Monthly return correlation between the two below **0.3**.
-2. The 50/50 mix has a **higher Sharpe than Donchian alone** and a
-   **shallower max drawdown** than Donchian alone.
-3. It is a plateau, not a spike: **every** mix from 80/20 to 30/70 beats
-   Donchian's Sharpe.
-4. It holds in **both halves** of the period (2016-2020 and 2021-2026): the
-   50/50 Sharpe beats Donchian's in each.
-
-**What this cannot show.** Total return will almost certainly be lower than
-Donchian alone, and far below SPY's +355%; that is not the test. The test is
-whether the mix buys meaningfully less risk per unit of return, which is what
-"complement" means. Whether that trade-off is worth taking is a judgement call,
-not a finding.
-
----
-
 ## What the experiments add up to
 
 - **Seven short rules have now been tested against this system and all

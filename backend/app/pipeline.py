@@ -40,8 +40,8 @@ import yfinance as yf
 from .account import get_settings, resolve_equity, suggested_shares
 from .config import DATA_DIR, DEMO_MODE
 from .database import Base, SessionLocal, engine, sync_new_columns
-from .models import Holding, RsiSignal, Signal, Universe
-from .signals import compute_rsi_signal_frame, compute_signal_frame
+from .models import Holding, Signal, Universe
+from .signals import compute_signal_frame
 from .timeutil import utcnow
 
 # Equity ETFs scanned alongside the S&P 500 constituents. The Wikipedia
@@ -50,64 +50,6 @@ from .timeutil import utcnow
 EXTRA_EQUITY_TICKERS = [
     "SPUS",  # SP Funds S&P 500 Sharia Industry Exclusions ETF
     "SPTE",  # SP Funds S&P Global Technology ETF
-]
-
-# The RSI(2) scan universe: liquid, index-tracking ETFs.
-#
-# Mean reversion is a bet that an unusually sharp drop partly reverses.
-# That bet is far better founded on a basket than on one company: an index
-# has no single point of failure, so a 5% fall is usually flow rather than
-# news, whereas one stock down 5% may have a reason that doesn't reverse
-# at all. Measured on this project's own data, RSI(2) over the S&P 500
-# constituents returned 8.3% against SPY's 352.9% — see backend/README.md.
-#
-# Two deliberate exclusions:
-#
-# * **SPY**, because it is the benchmark. `python -m app.backtest` pops the
-#   benchmark out of the tradeable set, so a backtest could never buy it —
-#   and a live page recommending a ticker the backtest structurally cannot
-#   trade would break the parity the ranking work exists to protect. VOO
-#   carries the same exposure and is tradeable in both.
-# * **Leveraged and inverse products** (SQQQ, TQQQ, SH…). Daily rebalancing
-#   makes their returns path-dependent, so a "dip" in one is not the same
-#   object the strategy was designed and measured on.
-INDEX_ETF_TICKERS = [
-    # broad US market
-    "VOO",   # S&P 500 — stands in for SPY, which is the benchmark
-    "QQQ",   # Nasdaq 100
-    "IWM",   # Russell 2000 small cap
-    "DIA",   # Dow 30
-    "VTI",   # total US market
-    "IJH",   # S&P mid cap 400
-    "IJR",   # S&P small cap 600
-    # US sectors (the SPDR Select Sector family — the classic
-    # mean-reversion set, since a whole sector rarely gaps on one story)
-    "XLB",   # materials
-    "XLC",   # communication services
-    "XLE",   # energy
-    "XLF",   # financials
-    "XLI",   # industrials
-    "XLK",   # technology
-    "XLP",   # consumer staples
-    "XLRE",  # real estate
-    "XLU",   # utilities
-    "XLV",   # health care
-    "XLY",   # consumer discretionary
-    # style
-    "VTV",   # large cap value
-    "VUG",   # large cap growth
-    # international
-    "EFA",   # developed markets ex-US
-    "EEM",   # emerging markets
-    "VGK",   # Europe
-    "EWJ",   # Japan
-    "FXI",   # China large cap
-    # bonds — different regime entirely, and they dip on their own schedule
-    "TLT",   # 20+ year treasuries
-    "IEF",   # 7-10 year treasuries
-    "AGG",   # US aggregate
-    "LQD",   # investment grade credit
-    "HYG",   # high yield credit
 ]
 
 # Commodity tickers, grouped by sub-class. These are the whole commodity
@@ -216,32 +158,6 @@ def get_extra_equity_tickers() -> List[str]:
 
 def get_commodity_tickers() -> List[str]:
     return list(COMMODITY_TICKERS)
-
-
-def get_index_etf_tickers() -> List[str]:
-    return list(INDEX_ETF_TICKERS)
-
-
-def rsi_scan_universe(held: List[str]) -> List[str]:
-    """What the RSI(2) strategy is allowed to look at.
-
-    Liquid index, sector, style and bond ETFs — never individual companies,
-    and no longer the commodity funds either. Both exclusions were measured
-    rather than assumed:
-
-    * **Single stocks**: 8.3% over 2016-2026 against SPY's 353%.
-    * **Commodity funds**: keeping PALL, UGA, CPER and BNO in cost Sharpe
-      0.43 and a -12.5% drawdown, against **0.61 and -9.2%** without them.
-      They are far thinner than the index ETFs, so they carry real spread
-      the model understates, and they lost money on balance anyway.
-
-    Held tickers are unioned in regardless of type, so a position you own
-    always gets an exit signal — the one thing this page must never
-    silently stop doing. A held commodity fund or single stock therefore
-    still appears here to be managed, but can never be suggested as a new
-    buy: `/api/rsi/entry-candidates` excludes anything already held.
-    """
-    return sorted(set(INDEX_ETF_TICKERS) | set(held))
 
 
 def fetch_ohlc_batch(tickers: List[str], period: str = PERIOD) -> Dict[str, pd.DataFrame]:
@@ -375,39 +291,6 @@ def upsert_signal(db, ticker: str, sig_row: pd.Series, prev_close: Optional[floa
         db.add(Signal(ticker=ticker, **values))
 
 
-def upsert_rsi_signal(db, ticker: str, sig_row: pd.Series, prev_close: Optional[float] = None) -> None:
-    """Same upsert, for the RSI(2) pullback strategy. Deliberately a
-    near-copy of `upsert_signal` rather than a shared generic writer: the
-    two tables hold different indicator columns, and the abstraction that
-    unified them would have to be a column map, which is harder to read
-    than the two explicit dicts."""
-    def clean(v):
-        return None if pd.isna(v) else float(v)
-
-    as_of = sig_row.name.date() if hasattr(sig_row.name, "date") else sig_row.name
-    values = dict(
-        as_of_date=as_of,
-        close=clean(sig_row["Close"]),
-        prev_close=prev_close,
-        rsi=clean(sig_row["RSI"]),
-        sma_fast=clean(sig_row["SMA_Fast"]),
-        sma_trend=clean(sig_row["SMA_Trend"]),
-        atr=clean(sig_row["ATR"]),
-        stop_distance=clean(sig_row["StopDistance"]),
-        entry_signal=bool(sig_row["EntrySignal"]),
-        exit_signal=bool(sig_row["ExitSignal"]),
-        suggested_shares=clean(sig_row["Shares"]),
-        updated_at=utcnow(),
-    )
-
-    existing = db.query(RsiSignal).filter(RsiSignal.ticker == ticker).first()
-    if existing:
-        for k, v in values.items():
-            setattr(existing, k, v)
-    else:
-        db.add(RsiSignal(ticker=ticker, **values))
-
-
 def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetch_ohlc_batch) -> None:
     if DEMO_MODE:
         print(
@@ -437,21 +320,13 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
         # equity count the wrapper checks.
         equities = list(dict.fromkeys(sp500 + get_extra_equity_tickers()))
         commodities = get_commodity_tickers()
-        index_etfs = get_index_etf_tickers()
         held = [t for (t,) in db.query(Holding.ticker).all()]
 
-        universe = sorted(set(equities) | set(commodities) | set(index_etfs))
+        universe = sorted(set(equities) | set(commodities))
         # Union with holdings: a held ticker outside the default universe
         # (e.g. dropped out of the S&P 500) still needs its exit signal
         # computed — that's a hard requirement from the brief.
         all_tickers = sorted(set(universe) | set(held))
-
-        # The two strategies scan different universes. Donchian breakouts
-        # run over everything; RSI(2) is restricted to baskets, because
-        # mean reversion on single companies was measured and did not work
-        # (backend/README.md). Bars are fetched once for the union, so the
-        # narrower scan costs no extra requests.
-        rsi_tickers = set(rsi_scan_universe(held))
 
         print(
             f"[pipeline] {len(equities)} equities + {len(commodities)} commodities = "
@@ -464,7 +339,6 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
         # primary key, so a duplicate would raise rather than reclassify.
         seen: set[str] = set()
         for group, asset_class in (
-            (index_etfs, "etf"),
             (commodities, "commodity"),
             (equities, "equity"),
         ):
@@ -476,7 +350,6 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
         db.commit()
 
         computed, failed = 0, 0
-        rsi_computed, rsi_failed = 0, 0
         in_progress = 0
 
         # Read once, not per ticker. A full run takes minutes, so a run that
@@ -485,7 +358,7 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
         now_et = market_now_et()
 
         def process(ticker: str, df: Optional[pd.DataFrame]) -> None:
-            nonlocal computed, failed, rsi_computed, rsi_failed, in_progress
+            nonlocal computed, failed, in_progress
             # Before anything reads the frame: today's unfinished bar is
             # not a bar. Trimming here rather than after the strategy
             # matters — ATR averages true range including the partial
@@ -513,20 +386,6 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
             except Exception as e:
                 print(f"[pipeline] WARNING: signal calc failed for {ticker} ({e})")
                 failed += 1
-
-            # Second strategy, same bars — no extra fetch. Caught
-            # separately so a fault in the newer strategy can never
-            # cost the Donchian signals, which are what the exit
-            # alerts on the main page depend on.
-            if ticker in rsi_tickers:
-                try:
-                    rsi_last = compute_rsi_signal_frame(df).iloc[-1]
-                    if not pd.isna(rsi_last["Close"]):
-                        upsert_rsi_signal(db, ticker, rsi_last, prev)
-                        rsi_computed += 1
-                except Exception as e:
-                    print(f"[pipeline] WARNING: RSI calc failed for {ticker} ({e})")
-                    rsi_failed += 1
 
         # Tickers that came back with no data at all, held for one retry
         # rather than counted as failed on the spot. See RETRY_PAUSE_SEC.
@@ -588,27 +447,10 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
         # so these stored values are a snapshot rather than the source of
         # truth. Writing them keeps the column honest for anyone querying
         # the database directly instead of through the API.
-        # Drop RSI rows for anything no longer in that strategy's scope —
-        # a ticker sold, or the whole S&P 500 after the universe narrowed
-        # to baskets. Upserts alone would leave those rows behind, and a
-        # stale row is worse than a missing one: it would keep offering
-        # last month's signal as today's recommendation.
-        pruned = (
-            db.query(RsiSignal)
-            .filter(RsiSignal.ticker.notin_(rsi_tickers))
-            .delete(synchronize_session=False)
-        )
-        if pruned:
-            print(f"[pipeline] Pruned {pruned} RSI signal(s) outside the basket universe.")
-        db.commit()
-
         equity, source = resolve_equity(db)
         settings = get_settings(db)
         restated = 0
-        # Both strategies size off the same equity and the same risk
-        # fraction — only their stop distances differ — so the restatement
-        # covers both tables.
-        for sig in [*db.query(Signal).all(), *db.query(RsiSignal).all()]:
+        for sig in db.query(Signal).all():
             shares = suggested_shares(sig.stop_distance, equity, settings.risk_fraction)
             if shares is not None:
                 sig.suggested_shares = shares
@@ -630,8 +472,7 @@ def run_pipeline(fetch_fn: Callable[[List[str]], Dict[str, pd.DataFrame]] = fetc
                 f"signals are as of the last completed session."
             )
         print(
-            f"[pipeline] Done. Donchian: {computed} updated, {failed} skipped/failed. "
-            f"RSI(2): {rsi_computed} updated, {rsi_failed} failed."
+            f"[pipeline] Done. Donchian: {computed} updated, {failed} skipped/failed."
         )
     finally:
         db.close()

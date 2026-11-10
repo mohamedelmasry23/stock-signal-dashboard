@@ -14,7 +14,7 @@ What counts as personal, and what's done about it:
   account_settings    every row deleted; get_settings() recreates the
                       default row on first use, so equity resolves to the
                       labelled DEFAULT_EQUITY placeholder
-  suggested_shares    set to NULL in signals and rsi_signals. The pipeline
+  suggested_shares    set to NULL in signals. The pipeline
                       stores it sized to the owner's equity, and beside the
                       stored stop_distance it gives that equity straight
                       back. The API never reads it (it re-sizes at request
@@ -43,7 +43,6 @@ PERSONAL_TABLES = ("holdings", "account_settings")
 PUBLIC_TABLES = frozenset({
     "universe",
     "signals",
-    "rsi_signals",
     "backtest_runs",
     "backtest_equity",
     "backtest_trades",
@@ -51,7 +50,7 @@ PUBLIC_TABLES = frozenset({
     "watch_scan",
 })
 # Columns sized to the owner's equity (see the module docstring).
-EQUITY_DERIVED_COLUMNS = (("signals", "suggested_shares"), ("rsi_signals", "suggested_shares"))
+EQUITY_DERIVED_COLUMNS = (("signals", "suggested_shares"),)
 
 
 class SnapshotRefused(RuntimeError):

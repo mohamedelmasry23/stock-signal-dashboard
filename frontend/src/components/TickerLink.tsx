@@ -3,9 +3,8 @@ import { cn } from './ui'
 /**
  * A ticker symbol that opens its detail chart.
  *
- * Renders a plain span when no handler is given, so the RSI panels — which
- * have no detail page yet — keep working unchanged, and so a future caller
- * can't accidentally ship a button that does nothing.
+ * Renders a plain span when no handler is given, so a caller can't
+ * accidentally ship a button that does nothing.
  *
  * Typography is passed in rather than owned here: the panels render tickers
  * at `text-sm`, the exit banner at the surrounding prose size. This

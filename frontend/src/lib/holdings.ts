@@ -1,13 +1,8 @@
 import type { Quote } from './api'
 
 /**
- * The minimum shape a holding needs for the shared display logic below.
- *
- * Both `Holding` and `RsiHolding` satisfy it structurally: the two
- * strategies compute different signals, but a position's day-change and
- * live-ness come from the quote and the closes, which are the same data
- * on either page. Typed as this narrow interface rather than a union so a
- * third strategy needs no edit here.
+ * The minimum shape a holding needs for the display logic below: a
+ * position's day-change and live-ness come from the quote and the closes.
  */
 export interface PricedHolding {
   quote: Quote | null

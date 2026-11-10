@@ -22,7 +22,6 @@ from .config import (
 )
 from .database import Base, engine, get_db, sync_new_columns
 from .security import require_write_access
-from .signals import RSI_ENTRY_THRESHOLD
 from .timeutil import utcnow
 
 Base.metadata.create_all(bind=engine)
@@ -281,17 +280,6 @@ def entry_candidates(limit: int = 10, db: Session = Depends(get_db)):
     ]
 
 
-def _rsi_signal_out(
-    sig: models.RsiSignal, equity: float, risk_fraction: float
-) -> schemas.RsiSignalOut:
-    """As `_signal_out`, for the RSI strategy: sizing is recomputed from
-    the account as it stands now rather than served from the value the
-    pipeline stored last night."""
-    out = schemas.RsiSignalOut.model_validate(sig)
-    out.suggested_shares = suggested_shares(sig.stop_distance, equity, risk_fraction)
-    return out
-
-
 @app.get("/api/watch", response_model=schemas.WatchOut)
 def watchlist(limit: int = 20, db: Session = Depends(get_db)):
     """Tickers trading above their 55-day Donchian high right now.
@@ -371,93 +359,6 @@ def watchlist(limit: int = 20, db: Session = Depends(get_db)):
         above_count=len(rows),
         truncated=len(rows) > limit,
     )
-
-
-@app.get("/api/rsi/holdings", response_model=List[schemas.RsiHoldingOut])
-def list_rsi_holdings(live: bool = False, db: Session = Depends(get_db)):
-    """Your holdings with RSI(2) pullback signals attached.
-
-    Same positions as `/api/holdings` — the difference is entirely in which
-    of them is flagged for exit, because the two strategies exit on
-    different conditions. A ticker can legitimately be an exit here and a
-    hold there; that disagreement is information, not a bug, and neither
-    page is authoritative over the other.
-    """
-    quotes = _live_prices(db, live)
-    prices = {t: q.price for t, q in quotes.items() if q.price is not None}
-    equity, _ = resolve_equity(db, prices)
-    risk = get_settings(db).risk_fraction
-
-    out = []
-    for h in db.query(models.Holding).order_by(models.Holding.ticker).all():
-        sig = db.query(models.RsiSignal).filter(models.RsiSignal.ticker == h.ticker).first()
-        quote = quotes.get(h.ticker)
-        price = quote.price if quote and quote.price is not None else (sig.close if sig else None)
-        out.append(
-            schemas.RsiHoldingOut(
-                ticker=h.ticker,
-                shares=h.shares,
-                added_at=h.added_at,
-                signal=_rsi_signal_out(sig, equity, risk) if sig else None,
-                quote=(
-                    schemas.QuoteOut(
-                        price=quote.price,
-                        change_percent=quote.change_percent,
-                        previous_close=quote.previous_close,
-                        market_state=quote.market_state,
-                    )
-                    if quote
-                    else None
-                ),
-                market_value=(
-                    h.shares * price if (h.shares is not None and price is not None) else None
-                ),
-            )
-        )
-    return out
-
-
-@app.get("/api/rsi/entry-candidates", response_model=List[schemas.RsiEntryCandidateOut])
-def rsi_entry_candidates(limit: int = 10, db: Session = Depends(get_db)):
-    """The most oversold pullbacks in the scan universe, excluding anything
-    already held.
-
-    Ranked by how far RSI(2) printed *below* the entry trigger — the deeper
-    the dip, the further the strategy expects it to snap back. That is the
-    mean-reversion mirror of ranking Donchian candidates by how far above
-    the breakout they closed.
-    """
-    limit = max(1, min(limit, 10))
-    equity, _ = resolve_equity(db)
-    risk = get_settings(db).risk_fraction
-    held = {t for (t,) in db.query(models.Holding.ticker).all()}
-
-    rows = (
-        db.query(models.RsiSignal)
-        .filter(models.RsiSignal.entry_signal == True)  # noqa: E712
-        .all()
-    )
-
-    # Ascending RSI: most oversold first. Rows with no RSI at all sort last
-    # rather than first, which a plain ascending sort on None would get
-    # backwards.
-    scored = [r for r in rows if r.ticker not in held]
-    scored.sort(key=lambda r: (r.rsi is None, r.rsi if r.rsi is not None else 0.0))
-
-    return [
-        schemas.RsiEntryCandidateOut(
-            ticker=r.ticker,
-            close=r.close,
-            rsi=r.rsi,
-            sma_fast=r.sma_fast,
-            sma_trend=r.sma_trend,
-            atr=r.atr,
-            suggested_shares=suggested_shares(r.stop_distance, equity, risk),
-            oversold_depth=(RSI_ENTRY_THRESHOLD - r.rsi) if r.rsi is not None else None,
-            as_of_date=r.as_of_date,
-        )
-        for r in scored[:limit]
-    ]
 
 
 def _account_out(db: Session, prices: Optional[dict] = None) -> schemas.AccountOut:
@@ -556,10 +457,10 @@ def _backtest_run_out(db: Session, run: models.BacktestRun) -> schemas.BacktestR
 def _backtest_out(db: Session, strategy: str) -> schemas.BacktestOut:
     """The most recent backtest of each variant for one strategy.
 
-    Filtered by strategy rather than served as one pile: each dashboard
-    page shows its own system, and mixing them would put an RSI curve under
-    a Donchian heading. Runs written before the `strategy` column existed
-    are Donchian ones, hence the NULL fallback.
+    Filtered by strategy so a run of anything else stored in the same
+    table can never appear under the Donchian heading. Runs written before
+    the `strategy` column existed are Donchian ones, hence the NULL
+    fallback.
     """
     stored = [
         run
@@ -663,14 +564,6 @@ def get_backtest(db: Session = Depends(get_db)):
     for a feature that simply hasn't been used yet.
     """
     return _backtest_out(db, "donchian")
-
-
-@app.get("/api/rsi/backtest", response_model=schemas.BacktestOut)
-def get_rsi_backtest(db: Session = Depends(get_db)):
-    """The RSI(2) pullback backtest. Same shape as `/api/backtest`, and
-    strictly separate from it — neither strategy's runs can displace the
-    other's."""
-    return _backtest_out(db, "rsi")
 
 
 def _empty_bars() -> schemas.TickerBarsOut:
@@ -872,12 +765,10 @@ def ticker_detail(
 
 @app.get("/api/status", response_model=schemas.StatusOut)
 def status(db: Session = Depends(get_db)):
-    """When each strategy's signals were last computed, so the frontend can
-    flag stale data per page."""
+    """When the signals were last computed, so the frontend can flag stale
+    data."""
     last = db.query(func.max(models.Signal.updated_at)).scalar()
-    rsi_last = db.query(func.max(models.RsiSignal.updated_at)).scalar()
     return schemas.StatusOut(
         demo_mode=DEMO_MODE,
         signals_last_updated=last,
-        rsi_signals_last_updated=rsi_last,
     )

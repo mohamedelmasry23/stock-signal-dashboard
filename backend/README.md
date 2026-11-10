@@ -58,8 +58,7 @@ python3 -m app.pipeline
 ```
 
 Scans the S&P 500 (pulled fresh from Wikipedia) + a few extra equity ETFs
-(`EXTRA_EQUITY_TICKERS`) + 30 index/sector/style/bond ETFs
-(`INDEX_ETF_TICKERS`) + 12 commodity tickers spanning precious metals,
+(`EXTRA_EQUITY_TICKERS`) + 12 commodity tickers spanning precious metals,
 energy, industrial metals, agriculture and a broad basket
 (`COMMODITY_TICKERS`, all in `app/pipeline.py`)
 + anything currently in your `holdings` table (even if it's outside that
@@ -71,16 +70,6 @@ upserts into `data/real.db`.
 Safe to re-run any time — it updates existing rows rather than duplicating
 them. Refuses to run if `DEMO_MODE=true`, so it can never overwrite the
 fake demo data with a giant list of real tickers.
-
-**The two strategies scan different subsets of that one fetch.** Donchian
-breakouts run over everything; RSI(2) is restricted by
-`rsi_scan_universe()` to liquid index/sector/style/bond ETFs plus whatever
-you hold — never S&P constituents, and no longer the commodity funds
-either (both exclusions were measured; see the RSI results below). Bars are
-fetched once for the union, so the narrower scan costs no extra requests.
-RSI rows for tickers outside that set are pruned on every run, so narrowing
-the universe cannot leave last month's signals sitting on the page as
-today's recommendation.
 
 Since holdings start empty on a fresh install, run `python -m app.pipeline`
 once first to populate the universe, then add your holdings through
@@ -503,9 +492,9 @@ It runs `scripts/daily_pipeline.sh`, which writes **one line per run**
 saying whether that run was healthy:
 
 ```
-2026-08-14 23:30:48 EEST  ok      donchian 547 updated, 0 failed; rsi 35 updated, 0 failed; 505 equities
+2026-08-14 23:30:48 EEST  ok      donchian 517 updated, 0 failed; 505 equities
 2026-08-13 19:39:51 EEST  WARNING 267 tickers failed — unusually high
-2026-08-18 11:02:13 EEST  ok      donchian 547 updated, 0 failed; rsi 35 updated, 0 failed; 505 equities; mid-session run, partial bar skipped
+2026-08-18 11:02:13 EEST  ok      donchian 517 updated, 0 failed; 505 equities; mid-session run, partial bar skipped
 ```
 
 The wrapper exists because the pipeline is deliberately forgiving — a
@@ -640,218 +629,13 @@ so that ordering is load-bearing.
 | GET    | `/api/entry-candidates`     | Top N (`?limit=`, max 10) fresh entry signals, excluding held tickers, ranked by ATR-normalized breakout strength |
 | GET    | `/api/account`              | Account equity, its source, and the inputs behind it. `?live=true` values holdings at current quotes |
 | PATCH  | `/api/account`              | Set `cash_balance`, `risk_fraction`, or `equity_override`        |
-| GET    | `/api/rsi/holdings`         | The same holdings judged by the RSI(2) strategy — different exit flags, same positions. `?live=true` as above |
-| GET    | `/api/rsi/entry-candidates` | Top N (`?limit=`, max 10) oversold pullbacks, excluding held tickers, ranked by depth below the RSI trigger |
-
-The `/api/rsi/*` routes are separate rather than a `?strategy=` flag on the
-existing ones: the payloads genuinely differ (RSI and two moving averages
-in place of the Donchian levels), and a query parameter that silently
-changes a response's fields is worse to consume than two explicit routes.
-
-## Strategies
-
-Two run over the same universe, from the same fetched bars, in the same
-daily pipeline pass. Both live in `app/signals.py`, and both are pure
-functions of one ticker's OHLC frame.
-
-| | Donchian breakout | RSI(2) pullback |
-|---|---|---|
-| Family | Trend following | Mean reversion |
-| Entry | Close above the 55-day high | RSI(2) < 5 **and** close above the 200-day average |
-| Exit | Close below the 20-day low | RSI(2) > 70 **or** close above the 5-day average |
-| Direction of exit | Downward — cuts a loss | Upward — takes a bounce |
-| Universe | S&P 500 + ETFs + commodities | Liquid index/sector/style/bond ETFs — **no single stocks, no commodity funds** |
-| Typical shape | Few long holds, ~98% invested, wins <50% | Many short holds, high win rate, mostly in cash (24.7% avg exposure) |
-
-They were chosen to *disagree*. Two trend-following strategies both
-flagging a ticker is one signal counted twice; this pair flagging the same
-ticker is genuinely rare, because one buys strength and the other buys
-weakness. That is also why a holding can show an exit on one page and a
-hold on the other — the disagreement is information, and neither page
-overrides the other.
-
-**The 200-day filter is load-bearing.** Without it, RSI mean reversion
-buys every falling knife in the universe: `test_rsi_entry_needs_both_a_dip_and_an_uptrend`
-pins a case that is *more* oversold than a valid signal and must still be
-refused, because the trend is down.
-
-Both strategies size positions identically — same equity, same risk
-fraction, same ATR — so a trade is risked the same amount whichever
-proposed it. `test_both_strategies_agree_on_volatility` pins that.
-
-Pick a strategy with `--strategy`:
-
-```bash
-python3 -m app.backtest --strategy rsi --universe index_etfs \
-  --start 2016-01-01 --offline --save
-```
-
-`index_etfs` is the RSI scan universe — see `INDEX_ETF_TICKERS` in
-`app/pipeline.py`. It is deliberately not folded into the `etfs` group,
-because that name is part of the stored Donchian runs' identity and
-widening it would silently change what `sp500,etfs` means.
-
-### RSI(2) results — why the universe is baskets, not companies
-
-The strategy was first measured over the S&P 500 constituents. It failed,
-and the failure is why `INDEX_ETF_TICKERS` exists:
-
-| | Constituents (today's list) | Constituents (2016 list) | **Indexes & ETFs** | SPY buy & hold |
-|---|---|---|---|---|
-| Total return | 8.3% | −9.4% | **8.4%** | 352.9% |
-| CAGR | 0.8% | −0.9% | **0.8%** | 15.3% |
-| Max drawdown | −45.5% | −43.4% | **−23.6%** | −33.7% |
-| Volatility | 16.9% | 15.5% | **7.8%** | 17.8% |
-| Sharpe | 0.13 | 0.02 | **0.14** | 0.89 |
-| Win rate | 61.6% | 59.7% | **60.6%** | — |
-| Profit factor | 1.01 | 0.98 | **1.08** | — |
-| Trades | 3,368 | 3,150 | **963** | 1 |
-| Distinct entry dates | 1,593 | 1,574 | **562** | — |
-| Costs paid | $121,971 | $97,058 | **$31,832** | — |
-| Avg gross exposure | 96%¹ | — | **24.7%** | 100% |
-
-¹ time-in-market 87.8% on the constituent run; the basket run holds
-something on 48.1% of days.
-
-Moving to baskets did what the theory said it would. Drawdown roughly
-halves, volatility halves, profit factor improves from break-even to 1.08,
-and costs fall by three quarters because there are a third as many trades.
-**The risk profile is genuinely better.**
-
-What it did *not* do is make the strategy competitive: 8.4% against 352.9%
-over the same decade. And on the constituent runs the conclusion was
-already unambiguous — SPY's 353% sits far outside the survivorship bracket
-of −9.4% to +8.3%, so it held under either membership assumption.
-
-### That 8.4% was mostly a costing error
-
-The figure above was produced with **10bps per side** — a rate chosen for a
-500-name single-stock universe and then applied to SPY, QQQ and the sector
-SPDRs, which trade at penny spreads. Correcting it, plus crediting idle
-cash, changes the result by an order of magnitude. Each row changes exactly
-one thing:
-
-| Configuration | Return | CAGR | Sharpe | Max DD | Avg exposure | Costs |
-|---|---|---|---|---|---|---|
-| a. as first measured (10bps/side) | 8.4% | 0.8% | 0.14 | −23.6% | 24.7% | $31,832 |
-| b. + equal-weight sizing | **−0.3%** | −0.0% | 0.04 | −31.7% | 28.1% | $33,843 |
-| c. + ETF costs (1.5bps/side) | 39.3% | 3.2% | 0.38 | −23.5% | 28.1% | $6,043 |
-| d. + cash earning 2% | 62.0% | 4.7% | 0.32 | −20.0% | 28.1% | $6,623 |
-| **liquid ETFs only, risk sizing** | **87.4%** | **6.1%** | **0.61** | **−9.2%** | 19.4% | — |
-| SPY buy & hold (rf 2%) | 352.9% | 15.3% | 0.78 | −33.7% | 100% | — |
-
-**Three findings, two of which contradicted the hypothesis going in:**
-
-1. **The cost model was the whole story.** Row b → c changes nothing but
-   the rate and takes the strategy from −0.3% to 39.3%, Sharpe 0.04 → 0.38.
-   Nothing else came close to that.
-2. **Equal-weight sizing made it worse, not better** (row b). The theory
-   said published RSI(2) is traded at flat allocations and that our 20% cap
-   was throttling returns. Measured, it *lost*: equal weight allocates by
-   dollars, so it takes its largest risk in the most volatile instruments —
-   precisely the ones ATR sizing shrinks. `--sizing equal_weight` remains
-   available to re-check this.
-3. **Under-deployment is signal scarcity, not the position cap.** Switching
-   allocation models moved average exposure only 24.7% → 28.1%. Mean
-   concurrent positions is 1.2–1.8 and 41% of days hold nothing; the
-   binding constraint is how rarely the strategy gets a signal.
-
-**The commodity sleeve was a drag, and has been dropped.** Liquid ETFs
-alone score Sharpe 0.61 and a −9.2% drawdown, against 0.43 and −12.5% with
-the commodity funds mixed in. PALL, UGA, CPER and BNO are far thinner than
-the index ETFs, so the 1.5bps rate flatters them, and they lost money on
-balance anyway. `rsi_scan_universe()` now excludes them; they remain in the
-Donchian universe, and a held commodity fund still gets its RSI exit
-signal.
-
-**Final configuration, which is what the dashboard shows:**
-
-| | RSI(2) on liquid ETFs | SPY buy & hold |
-|---|---|---|
-| Total return | 87.4% | 353.7% |
-| CAGR | 6.1% | 15.3% |
-| **Sharpe** | **0.61** | **0.78** |
-| **Max drawdown** | **−9.2%** | −33.7% |
-| Win rate / profit factor | 69.6% / 1.74 | — |
-| Worst loss | −1.94R | — |
-| Trades / distinct dates | 772 / 418 | 1 |
-| Avg exposure | 19.4% | 100% |
-
-### So is it viable?
-
-Properly costed, at a fifth of the exposure: **Sharpe 0.61 against buy &
-hold's 0.78, with a −9.2% maximum drawdown against −33.7%.** That is a
-respectable diversifier and a poor total-return vehicle, which is exactly
-what short-term mean reversion is generally used as. It loses the headline
-comparison because it is in the market 19% of the time during one of the
-strongest decades the index has ever had — being in cash at all is a drag
-in that regime.
-
-The remaining assumption to be careful with is the 2% cash yield: rates
-were near zero until 2022 and above 5% after, so a flat 2% is a rough
-stand-in for a path that was anything but flat.
-
-**Selection bias to keep in mind:** the ETF list was chosen in 2026 with
-knowledge of which funds are liquid today, and XLC did not exist until
-2018. There is no archived "liquid ETFs of 2016" list to bracket that
-against the way `sp500_2016.txt` brackets the constituent runs.
-
-Note the shape the theory predicted: a **high win rate (61.6%) with a
-profit factor of 1.01**. It wins far more often than it loses and still
-makes nothing, because the average loss ($547) is larger than the average
-win ($346). A win rate read on its own would be actively misleading here.
-
-### Where it goes: friction
-
-The strategy paid **$121,971 in costs on a $100,000 account** — more than
-the account started with, across 3,368 round trips. A cost sweep isolates
-that:
-
-| Per-side cost | Total return | CAGR | Profit factor | Costs paid |
-|---|---|---|---|---|
-| 0 bps | 184.6% | 10.4% | 1.15 | $0 |
-| 2.5 bps | 123.3% | 7.9% | 1.12 | $45,618 |
-| 5 bps | 75.3% | 5.4% | 1.08 | $79,304 |
-| **10 bps** (default) | **8.3%** | **0.8%** | **1.01** | **$121,971** |
-| 20 bps | −58.7% | −8.0% | 0.87 | $151,376 |
-
-**There is a real signal in here.** Frictionless it returns 185% at a
-profit factor of 1.15 — the entries are not noise. But the edge is thinner
-than the cost of harvesting it: break-even lands around 10 bps per side,
-which is roughly what a retail account actually pays, and every level still
-loses to SPY. That is the finding. A strategy whose edge is smaller than
-its own transaction costs is not a strategy.
-
-Reproduce the sweep by varying `--cost-bps` and `--slippage-bps`.
-
-### On reading these numbers
-
-- **Trade count is not sample size.** 3,368 trades fall on 1,593 distinct
-  dates, and dips arrive market-wide — the top 8 signal days alone account
-  for 4.3% of all entry signals. Trades opened together share one market
-  move, so the effective sample is far smaller than the trade count implies.
-- **Idle cash earns 0% here.** For a strategy at 88% time-in-market that is
-  a modest understatement of return; with `--risk-free 0` the Sharpe is
-  simultaneously overstated. The two do not cancel. Set `--risk-free`
-  deliberately before comparing against a fully-invested system.
-- **The parameters were not fitted.** RSI(2) < 5, SMA(200), SMA(5) and the
-  70 exit are Connors' published values, so this run is genuinely
-  out-of-sample. Tuning them to improve the result would forfeit that, which
-  is why `--rsi-*` flags exist for sensitivity checks rather than for
-  searching.
 
 ## Schema
 
 - **`holdings`** — what you currently own (ticker + optional amount, in whatever unit the ticker is quoted in)
 - **`universe`** — the scan universe (ticker + asset class: equity/commodity) — refreshed each pipeline run
 - **`signals`** — latest Donchian/ATR snapshot per ticker — upserted daily by the pipeline
-- **`rsi_signals`** — latest RSI(2) pullback snapshot per ticker — written by the same run
 - **`account_settings`** — single row: cash balance, risk fraction, optional equity override
-
-`rsi_signals` is a separate table rather than more columns on `signals`
-because the strategies disagree by design: the same ticker can carry an
-entry in one and an exit in the other on the same day, which one row per
-ticker cannot represent.
 
 `signals.prev_close` holds the prior session's close so the day's move can
 be shown without refetching history. It's null for a ticker with a single

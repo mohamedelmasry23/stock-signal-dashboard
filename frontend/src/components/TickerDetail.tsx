@@ -54,10 +54,6 @@ function RangeButtons({
  * without showing the shape of the move behind it. This page is the
  * evidence for that verdict, which is why the chart is the largest thing on
  * it and the stats sit underneath rather than competing for the top.
- *
- * Donchian only. The bands drawn here are the 55/20-day levels, so this is
- * reachable from the Donchian page alone; an RSI detail view would need its
- * own indicators rather than this one under a different heading.
  */
 export function TickerDetail({
   ticker,

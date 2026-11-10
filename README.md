@@ -1,21 +1,21 @@
 # Stock Signal Dashboard
 
-A trading-signal dashboard and backtesting lab built around two mechanical
-strategies: a **Donchian channel breakout** across the S&P 500 and an
-**RSI(2) pullback** on index ETFs. It runs every evening on a schedule,
-tells you when something you hold has hit its exit, ranks the strongest new
-breakouts, and sizes each one to your account.
+A trading-signal dashboard and backtesting lab built around a mechanical
+**Donchian channel breakout** system across the S&P 500 and a set of
+commodity ETFs. It runs every evening on a schedule, tells you when
+something you hold has hit its exit, ranks the strongest new breakouts, and
+sizes each one to your account.
 
 It also measures itself. A backtester built on the same signal code
-replays both strategies over 2016–2026, and a research log records more
-than ten attempts to improve them. Most of those attempts failed, and the
+replays the strategy over 2016–2026, and a research log records more than
+ten attempts to improve it. Most of those attempts failed, and the
 log says so.
 
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)
 ![React](https://img.shields.io/badge/React-19-61dafb)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6)
-![Tests](https://img.shields.io/badge/tests-329%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-309%20passing-brightgreen)
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -36,12 +36,12 @@ log says so.
 - **Production hardening for a laptop:** launchd scheduling, resistance to
   sleep and wake, a guard against unfinished bars, retries, and a log line
   per run that says plainly whether the run was healthy.
-- **329 tests**, none of which need network access.
+- **309 tests**, none of which need network access.
 
 ## What it does
 
 Every weekday after the US close, a pipeline pulls daily prices for about
-550 tickers from Yahoo Finance and computes, per ticker:
+520 tickers from Yahoo Finance and computes, per ticker:
 
 | Level | Meaning |
 |---|---|
@@ -65,26 +65,20 @@ The dashboard then shows:
 
 ![Ticker detail](docs/screenshots/ticker.png)
 
-A second page runs **RSI(2) pullback**, a short-horizon mean-reversion
-strategy. It's the opposite of a breakout: it buys sharp dips in liquid
-index, sector and bond ETFs that are still above their 200-day average.
-
-![RSI(2) page](docs/screenshots/rsi.png)
-
 ## Does it work?
 
 Measured over 2016–2026, with dividends reinvested and trading costs
 modelled:
 
-| | Donchian (S&P members at the time) | RSI(2) (index ETFs) | SPY buy & hold |
-|---|---|---|---|
-| Total return | 164% | 87% | 353% |
-| CAGR | 9.6% | 6.1% | 15.3% |
-| Max drawdown | −28.5% | **−9.2%** | −33.7% |
-| Sharpe | 0.63 | 0.61 | 0.89 |
-| Time invested | ~97% | ~19% | 100% |
+| | Donchian (S&P members at the time) | SPY buy & hold |
+|---|---|---|
+| Total return | 164% | 353% |
+| CAGR | 9.6% | 15.3% |
+| Max drawdown | −28.5% | −33.7% |
+| Sharpe | 0.63 | 0.89 |
+| Time invested | ~97% | 100% |
 
-**Neither strategy beats buying and holding SPY over this decade.** The
+**The strategy does not beat buying and holding SPY over this decade.** The
 backtester exists to find that out, not to hide it.
 
 ![Donchian backtest](docs/screenshots/backtest.png)
@@ -99,12 +93,6 @@ What the measurements found along the way:
   stop-out costs 1% of equity, but its only exit is the channel breakdown.
   As a result, 23.8% of losing trades lost more than 1%, and the worst lost
   3.9× that.
-- **RSI(2)'s edge is real, and costs decide it.** Frictionless, it returns
-  185% on single stocks. At retail costs on single stocks, it returns about
-  zero. On penny-spread index ETFs, it becomes a low-drawdown diversifier.
-  That's why its universe is baskets, not companies.
-
-![RSI(2) backtest](docs/screenshots/rsi-backtest.png)
 
 ## Research log
 
@@ -182,7 +170,7 @@ You need Python 3.12+ and Node 20+. Pick one of three ways to run it.
 ### 1. The real dashboard (recommended)
 
 The repo ships a snapshot of the live dashboard's data: real signals for
-about 550 tickers, the watchlist, and every saved backtest. It has no
+about 520 tickers, the watchlist, and every saved backtest. It has no
 holdings and no account details in it. To start from it:
 
 ```bash
@@ -197,8 +185,8 @@ cd frontend && npm install && npm run dev
 ```
 
 Open http://localhost:5173. You'll see the same pages as in the
-screenshots: entry candidates, ticker charts, the RSI(2) page and both
-real backtests.
+screenshots: entry candidates, the watchlist, ticker charts and the real
+backtest.
 
 - **Holdings:** yours start empty. Add your own and exit signals will
   appear for them.

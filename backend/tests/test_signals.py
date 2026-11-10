@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from app.signals import compute_rsi_signal_frame, compute_signal_frame
+from app.signals import compute_signal_frame
 
 
 def test_donchian_levels_exclude_today(ohlc):
@@ -87,80 +87,3 @@ def test_position_size_scales_with_equity_and_risk(ohlc):
     assert half_risk.iloc[-1]["Shares"] == 0.5 * base.iloc[-1]["Shares"]
 
 
-# --- RSI(2) pullback -------------------------------------------------------
-
-
-def linear(start, stop, n):
-    step = (stop - start) / (n - 1)
-    return [start + step * i for i in range(n)]
-
-
-def test_rsi_entry_needs_both_a_dip_and_an_uptrend(ohlc):
-    """The two conditions are not independent: the 200-day filter is the
-    only thing separating "a pullback" from "a collapse". A deeply
-    oversold ticker in a downtrend is the falling knife this strategy
-    exists to refuse, so it must not signal however low RSI goes."""
-    dip = [190.0, 180.0]
-    up = compute_rsi_signal_frame(ohlc(linear(100, 200, 240) + dip)).iloc[-1]
-    down = compute_rsi_signal_frame(ohlc(linear(200, 100, 240) + [95.0, 90.0])).iloc[-1]
-
-    assert up["RSI"] < 5 and up["Close"] > up["SMA_Trend"]
-    assert bool(up["EntrySignal"])
-
-    # Just as oversold, and rejected anyway.
-    assert down["RSI"] < 5
-    assert down["Close"] < down["SMA_Trend"]
-    assert not bool(down["EntrySignal"])
-
-
-def test_rsi_exits_on_the_bounce(ohlc):
-    """Unlike Donchian, this strategy exits upward — into strength rather
-    than out of weakness."""
-    closes = linear(100, 200, 240) + [190.0, 180.0, 205.0]
-    last = compute_rsi_signal_frame(ohlc(closes)).iloc[-1]
-
-    assert last["Close"] > last["SMA_Fast"]
-    assert bool(last["ExitSignal"])
-    assert not bool(last["EntrySignal"])
-
-
-def test_a_halted_ticker_is_neutral_rather_than_overbought(ohlc):
-    """A flat series has no gains and no losses, so the RSI ratio is 0/0.
-    The bare formula returns 100, which would print an exit signal every
-    single day for anything that stopped trading. Undefined means neutral."""
-    last = compute_rsi_signal_frame(ohlc([100.0] * 250)).iloc[-1]
-
-    assert last["RSI"] == 50.0
-    assert not bool(last["EntrySignal"])
-    assert not bool(last["ExitSignal"])
-
-
-def test_rsi_is_undefined_until_its_window_fills(ohlc):
-    """NaN compares False against every threshold, so a ticker without
-    enough history simply never signals — a recent IPO has no 200-day
-    average and must not be eligible."""
-    last = compute_rsi_signal_frame(ohlc(linear(100, 130, 30))).iloc[-1]
-
-    assert pd.isna(last["SMA_Trend"])
-    assert not bool(last["EntrySignal"])
-
-
-def test_both_strategies_agree_on_volatility(ohlc):
-    """Sizing divides into StopDistance, so if the two strategies computed
-    ATR differently the same ticker would be risked differently depending
-    on which page proposed it."""
-    closes = linear(100, 200, 240)
-    donchian = compute_signal_frame(ohlc(closes)).iloc[-1]
-    rsi = compute_rsi_signal_frame(ohlc(closes)).iloc[-1]
-
-    assert donchian["ATR"] == rsi["ATR"]
-    assert donchian["StopDistance"] == rsi["StopDistance"]
-
-
-def test_oversold_depth_never_goes_negative(ohlc):
-    """It's the ranking key for the candidates list. A bar that didn't
-    signal has no depth rather than a negative one, which would sort
-    quiet tickers above real ones."""
-    frame = compute_rsi_signal_frame(ohlc(linear(100, 200, 242)))
-
-    assert (frame["OversoldDepth"].dropna() >= 0).all()

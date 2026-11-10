@@ -23,7 +23,7 @@ Two consequences worth stating because both are easy to get backwards:
   engine must NOT shift them again — the one-bar delay lives entirely in
   the d/x split. Double-shifting is the classic off-by-one here.
 
-* `ATR`, `StopDistance`, and every indicator the RSI strategy uses are NOT
+* `ATR` and `StopDistance` are NOT
   shifted; they include their own bar. That is fine and is not look-ahead,
   so long as they are read from `d` and never from `x`.
 
@@ -372,9 +372,8 @@ def run_backtest(
                 continue
             # The strategy's own ranking key, computed by the same formula
             # the matching /api/…entry-candidates endpoint uses. When a day
-            # produces more signals than max_positions can hold — routine
-            # for RSI, which has printed 217 at once — this ordering, not
-            # the entry rule, decides what actually gets traded.
+            # produces more signals than max_positions can hold, this
+            # ordering, not the entry rule, decides what actually gets traded.
             rank = arr["rank"][d]
             if not np.isfinite(rank):
                 if not news:
@@ -410,8 +409,7 @@ def run_backtest(
             by_cash = cash / fill_price
 
             if config.sizing_mode == "equal_weight":
-                # A flat slice of the account per position, which is how
-                # short-term mean reversion is actually traded. No
+                # A flat slice of the account per position. No
                 # max_position_fraction here: the slice already bounds the
                 # position, and applying the cap as well would re-impose
                 # the throttle this mode exists to remove.

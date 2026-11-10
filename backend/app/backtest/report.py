@@ -112,30 +112,11 @@ def caveats(result: BacktestResult, universe_label: str, dropped: int = 0) -> li
         )
 
     if not cfg.use_atr_stop:
-        exit_rule = (
-            "the RSI bounce" if cfg.strategy == "rsi" else "the Donchian breakdown"
-        )
         notes.append(
-            f"No stop-loss: the only exit is {exit_rule}, so a position sized to risk "
+            f"No stop-loss: the only exit is the Donchian breakdown, so a position sized to risk "
             f"{cfg.risk_fraction * 100:.1f}% can lose more than that on a gap. See "
             "'losses worse than 1R' below."
         )
-
-    if cfg.strategy == "rsi":
-        notes.append(
-            "Entries cluster: this strategy buys dips, and dips arrive market-wide. "
-            "Trades opened on the same day share one move and are not independent "
-            "observations — read 'distinct entry dates' above, not the trade count, "
-            "as the sample size."
-        )
-        if cfg.risk_free_annual == 0:
-            notes.append(
-                "Idle cash earns 0% here, and Sharpe subtracts a 0% risk-free rate. For "
-                "a strategy that spends much of its time in cash these pull the result "
-                "in OPPOSITE directions — understating the return, overstating the "
-                "risk-adjusted figure. Set --risk-free deliberately before comparing "
-                "this against a fully-invested system."
-            )
 
     years = (result.equity.index[-1] - result.equity.index[0]).days / 365.25
     if years < 5:

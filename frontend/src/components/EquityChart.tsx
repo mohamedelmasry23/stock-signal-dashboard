@@ -25,10 +25,6 @@ const WIDTH = 800
 const HEIGHT = 260
 const PAD = { top: 12, right: 12, bottom: 24, left: 44 }
 
-// Height of the exposure strip below the price plot, and the gap above it.
-const EXPOSURE_H = 22
-const EXPOSURE_GAP = 8
-
 /** How a strategy curve is drawn. Every strategy curve shares the strategy
  *  colour — they are the same system measured over different universes,
  *  not different systems — so line weight and dash carry the difference. */
@@ -56,16 +52,6 @@ interface Props {
   /** Further strategy curves from other runs — same rules, different
    *  universe. */
   overlays?: Overlay[]
-  /**
-   * Draw a strip showing how much of the account was invested over time.
-   *
-   * Worth the space for a strategy that is mostly in cash: on the equity
-   * curve alone, "held through a flat stretch" and "sat in cash" are the
-   * same horizontal line, and for RSI(2) — invested under a fifth of the
-   * time — that is the difference between reading the chart correctly and
-   * not. Silently omitted when the run predates exposure being stored.
-   */
-  showExposure?: boolean
 }
 
 interface Sample {
@@ -116,15 +102,8 @@ export function EquityChart({
   strategyLabel = 'Strategy',
   strategyStyle = {},
   overlays = [],
-  showExposure = false,
 }: Props) {
   if (points.length < 2) return null
-
-  const exposure = points
-    .filter((p) => p.exposure != null)
-    .map((p) => ({ t: Date.parse(p.date), value: p.exposure as number }))
-  const withExposure = showExposure && exposure.length > 1
-  const height = withExposure ? HEIGHT + EXPOSURE_GAP + EXPOSURE_H : HEIGHT
 
   const overlayLine = (overlay: Overlay): Line => ({
     key: `overlay-${overlay.label}`,
@@ -183,28 +162,16 @@ export function EquityChart({
 
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => min + f * (max - min))
 
-  // Exposure strip geometry. Capped at 1.0 rather than scaled to the
-  // observed maximum: the question it answers is "how much of the account
-  // was at work", and a relative scale would make 20% look like 100% on a
-  // strategy that never goes fully invested.
-  const stripTop = HEIGHT - PAD.bottom + EXPOSURE_GAP
-  const expY = (v: number) => stripTop + EXPOSURE_H * (1 - Math.min(Math.max(v, 0), 1))
-  const avgExposure = exposure.length
-    ? exposure.reduce((sum, s) => sum + s.value, 0) / exposure.length
-    : 0
-
   return (
     <figure className="m-0">
       <svg
-        viewBox={`0 0 ${WIDTH} ${height}`}
+        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="w-full h-auto"
         role="img"
         aria-label={
           `Equity curves from ${month(t0)} to ${month(t1)}, each rebased to 100 at the start: ` +
           lines.map((line) => line.label).join(', ') +
-          (withExposure
-            ? `. Below, the share of the account invested over time, averaging ${Math.round(avgExposure * 100)} percent.`
-            : '.')
+          '.'
         }
       >
         {ticks.map((value) => (
@@ -230,55 +197,18 @@ export function EquityChart({
           </g>
         ))}
 
-        <text x={PAD.left} y={height - 6} fontSize={10} fill="var(--muted-foreground)">
+        <text x={PAD.left} y={HEIGHT - 6} fontSize={10} fill="var(--muted-foreground)">
           {month(t0)}
         </text>
         <text
           x={WIDTH - PAD.right}
-          y={height - 6}
+          y={HEIGHT - 6}
           textAnchor="end"
           fontSize={10}
           fill="var(--muted-foreground)"
         >
           {month(t1)}
         </text>
-
-        {withExposure && (
-          <g>
-            {/* Baseline first, so a stretch at zero exposure still reads as
-                a deliberate "in cash" rather than as missing data. */}
-            <line
-              x1={PAD.left}
-              x2={WIDTH - PAD.right}
-              y1={stripTop + EXPOSURE_H}
-              y2={stripTop + EXPOSURE_H}
-              stroke="var(--border)"
-              strokeWidth={1}
-            />
-            <path
-              d={
-                `M${xFor(exposure[0].t).toFixed(2)},${(stripTop + EXPOSURE_H).toFixed(2)} ` +
-                exposure
-                  .map((s) => `L${xFor(s.t).toFixed(2)},${expY(s.value).toFixed(2)}`)
-                  .join(' ') +
-                ` L${xFor(exposure[exposure.length - 1].t).toFixed(2)},${(stripTop + EXPOSURE_H).toFixed(2)} Z`
-              }
-              fill="var(--chart-1)"
-              opacity={0.28}
-              stroke="none"
-            />
-            <text
-              x={PAD.left - 8}
-              y={stripTop + EXPOSURE_H / 2}
-              textAnchor="end"
-              dominantBaseline="middle"
-              fontSize={9}
-              fill="var(--muted-foreground)"
-            >
-              in mkt
-            </text>
-          </g>
-        )}
 
         {/* Reversed so the headline strategy is drawn last and sits on top
             of the curves it's being compared against. */}
@@ -314,15 +244,6 @@ export function EquityChart({
             {line.label}
           </span>
         ))}
-        {withExposure && (
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              className="inline-block w-3 h-2 rounded-[2px] shrink-0"
-              style={{ background: 'var(--chart-1)', opacity: 0.28 }}
-            />
-            Share invested (avg {Math.round(avgExposure * 100)}%)
-          </span>
-        )}
         <span>All rebased to 100 at start</span>
       </figcaption>
     </figure>

@@ -53,60 +53,9 @@ export interface EntryCandidate {
   as_of_date: string | null
 }
 
-/** The RSI(2) pullback strategy's signal. Same envelope as `Signal`, with
- *  that strategy's own indicators in place of the Donchian levels. */
-export interface RsiSignal {
-  ticker: string
-  as_of_date: string | null
-  close: number | null
-  prev_close: number | null
-  /** RSI(2), Wilder-smoothed. Below 5 with price above its 200-day average
-   *  is the entry; above 70 is one of the two exits. */
-  rsi: number | null
-  /** 5-day average — closing above it is the other exit. */
-  sma_fast: number | null
-  /** 200-day average — price must be above it for any entry to fire. */
-  sma_trend: number | null
-  atr: number | null
-  stop_distance: number | null
-  entry_signal: boolean
-  exit_signal: boolean
-  suggested_shares: number | null
-  updated_at: string | null
-}
-
-/** The same positions as `Holding`, judged by the RSI strategy. Which
- *  holdings are flagged for exit differs between the two — that's the
- *  strategies disagreeing, not an inconsistency. */
-export interface RsiHolding {
-  ticker: string
-  shares: number | null
-  added_at: string
-  signal: RsiSignal | null
-  quote: Quote | null
-  market_value: number | null
-}
-
-export interface RsiEntryCandidate {
-  ticker: string
-  close: number
-  rsi: number | null
-  sma_fast: number | null
-  sma_trend: number | null
-  atr: number | null
-  suggested_shares: number | null
-  /** RSI points below the entry trigger — the ranking key, mirroring
-   *  `breakout_strength` on the Donchian side. */
-  oversold_depth: number | null
-  as_of_date: string | null
-}
-
 export interface Status {
   demo_mode: boolean
   signals_last_updated: string | null
-  /** Written by the same pipeline run, tracked separately so each page can
-   *  report its own freshness. */
-  rsi_signals_last_updated: string | null
 }
 
 export type EquitySource = 'override' | 'derived' | 'default'
@@ -145,7 +94,7 @@ export interface BacktestRun {
   id: number
   label: string
   universe: string
-  strategy: 'donchian' | 'rsi'
+  strategy: 'donchian'
   variant: 'faithful' | 'atr_stop'
   start_date: string
   end_date: string
@@ -351,15 +300,6 @@ export const api = {
   // otherwise be ambiguous. Same reason as updateShares/removeHolding below.
   tickerDetail: (ticker: string, range: ChartRange = '1Y') =>
     request<TickerDetail>(`/ticker/${encodeURIComponent(ticker)}?range=${range}`),
-
-  // The RSI(2) pullback page. Separate endpoints rather than a `?strategy=`
-  // parameter on the existing ones: the response shapes genuinely differ,
-  // and a query flag that silently changes a payload's fields is worse to
-  // consume than two explicit routes.
-  rsiHoldings: (live = false) => request<RsiHolding[]>(`/rsi/holdings?live=${live}`),
-  rsiEntryCandidates: (limit = 10) =>
-    request<RsiEntryCandidate[]>(`/rsi/entry-candidates?limit=${limit}`),
-  rsiBacktest: () => request<Backtest>('/rsi/backtest'),
 
   updateAccount: (patch: AccountPatch) =>
     request<Account>('/account', { method: 'PATCH', body: JSON.stringify(patch) }),

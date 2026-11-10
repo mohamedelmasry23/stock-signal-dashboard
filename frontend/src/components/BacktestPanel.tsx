@@ -208,25 +208,9 @@ function ChartNote({
         ) : (
           <>
             The strategy ended at <Figure>{strategy}</Figure> against <Figure>{benchmark}</Figure>{' '}
-            for buy &amp; hold.{' '}
-            {run.strategy === 'rsi' ? (
-              <>
-                Read those side by side only with the band underneath in view: this strategy was
-                invested an average of{' '}
-                <Figure>{pct(num(run.summary, 'avg_gross_exposure'), 0)}</Figure> of the account, so
-                it is not competing for the same money. The fairer comparisons are risk-adjusted —
-                Sharpe <Figure>{fixed(num(run.summary, 'sharpe'))}</Figure> against{' '}
-                <Figure>{fixed(num(run.benchmark_summary, 'sharpe'))}</Figure>, and a worst
-                drawdown of <Figure>{pct(num(run.summary, 'max_drawdown'))}</Figure> against{' '}
-                <Figure>{pct(num(run.benchmark_summary, 'max_drawdown'))}</Figure>. A flat stretch
-                in the line with an empty band beneath it is cash, not a losing position.
-              </>
-            ) : (
-              <>
-                Steepness is return and depth is drawdown — the long flat-to-falling stretches are
-                what holding this system through a bad year actually feels like.
-              </>
-            )}
+            for buy &amp; hold. Steepness is return and depth is drawdown — the long
+            flat-to-falling stretches are what holding this system through a bad year actually
+            feels like.
           </>
         )}
       </p>
@@ -237,14 +221,9 @@ function ChartNote({
 export function BacktestPanel({
   backtest,
   loading,
-  strategy = 'donchian',
 }: {
   backtest: Backtest | null
   loading: boolean
-  /** Only needed for the empty state, which has to name the command that
-   *  would populate it — every other string reads the strategy off the run
-   *  itself, which is authoritative once one exists. */
-  strategy?: 'donchian' | 'rsi'
 }) {
   if (loading) {
     return (
@@ -279,11 +258,8 @@ export function BacktestPanel({
             <>
               Run{' '}
               <code className="font-mono">
-                python3 -m app.backtest --strategy {strategy} --universe{' '}
-                {strategy === 'donchian'
-                  ? 'constituents:data/universes/sp500_constituents.csv,etfs'
-                  : 'index_etfs'}{' '}
-                --save
+                python3 -m app.backtest --universe
+                constituents:data/universes/sp500_constituents.csv,etfs --both-variants --save
               </code>{' '}
               from the backend folder to simulate this strategy over historical prices and populate
               this panel.
@@ -380,11 +356,6 @@ export function BacktestPanel({
           points={run.equity}
           strategyLabel={currentList ? 'Members at the time' : pointInTime ? "Today's list" : 'Strategy'}
           strategyStyle={currentList ? { width: 2.5 } : {}}
-          // Only where it earns its space. Donchian sits ~98% invested, so
-          // the strip would be a solid block saying nothing; RSI is under a
-          // fifth invested, where it's the difference between reading the
-          // curve correctly and not.
-          showExposure={run.strategy === 'rsi'}
           overlays={overlays}
         />
         <ChartNote run={run} pointInTime={pointInTime} currentList={currentList} />
@@ -417,7 +388,7 @@ export function BacktestPanel({
               {fixed(num(s, 'worst_loss_r'))}×
             </span>{' '}
             its intended risk. Position sizing assumes a stop the strategy doesn't place — the only
-            exit is {run.strategy === 'rsi' ? 'the RSI bounce' : 'the Donchian breakdown'}, so a gap
+            exit is the Donchian breakdown, so a gap
             through it costs whatever it costs.
           </p>
         </div>

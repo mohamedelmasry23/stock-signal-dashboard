@@ -7,11 +7,6 @@ import { ExitAlert } from './components/ExitAlert'
 import { Header } from './components/Header'
 import { HoldingsPanel } from './components/HoldingsPanel'
 import { IntradayWatch } from './components/IntradayWatch'
-import { RsiEntryCandidates } from './components/RsiEntryCandidates'
-import { RsiExitAlert } from './components/RsiExitAlert'
-import { RsiHoldingsPanel } from './components/RsiHoldingsPanel'
-import { RsiUniverseNote } from './components/RsiUniverseNote'
-import { StrategyNav } from './components/StrategyNav'
 import { TickerDetail } from './components/TickerDetail'
 import { useHashRoute } from './hooks/useHashRoute'
 import {
@@ -23,8 +18,6 @@ import {
   type ChartRange,
   type EntryCandidate,
   type Holding,
-  type RsiEntryCandidate,
-  type RsiHolding,
   type Status,
   type Watch,
   type TickerDetail as TickerDetailData,
@@ -39,9 +32,6 @@ export default function App() {
   const [watch, setWatch] = useState<Watch | null>(null)
   const [holdings, setHoldings] = useState<Holding[]>([])
   const [candidates, setCandidates] = useState<EntryCandidate[]>([])
-  const [rsiHoldings, setRsiHoldings] = useState<RsiHolding[]>([])
-  const [rsiCandidates, setRsiCandidates] = useState<RsiEntryCandidate[]>([])
-  const [rsiBacktest, setRsiBacktest] = useState<Backtest | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -69,37 +59,22 @@ export default function App() {
         // therefore equity). Signals stay end-of-day. The backend degrades
         // to stored closes if Yahoo is unreachable, so this never blocks
         // the dashboard loading.
-        //
-        // Only the showing strategy's data is fetched. Loading both would
-        // double the quote requests on every refresh to populate a page
-        // that isn't on screen.
-        const [s, a] = await Promise.all([api.status(), api.account(true)])
+        const [s, a, h, c, bt, w] = await Promise.all([
+          api.status(),
+          api.account(true),
+          api.holdings(true),
+          api.entryCandidates(10),
+          api.backtest(),
+          // Reads a table a scheduled scan fills; no network work happens
+          // here, so it costs nothing to include in the same round trip.
+          api.watch(20),
+        ])
         setStatus(s)
         setAccount(a)
-
-        if (route.page === 'rsi') {
-          const [h, c, bt] = await Promise.all([
-            api.rsiHoldings(true),
-            api.rsiEntryCandidates(10),
-            api.rsiBacktest(),
-          ])
-          setRsiHoldings(h)
-          setRsiCandidates(c)
-          setRsiBacktest(bt)
-        } else {
-          const [h, c, bt, w] = await Promise.all([
-            api.holdings(true),
-            api.entryCandidates(10),
-            api.backtest(),
-            // Reads a table a scheduled scan fills; no network work happens
-            // here, so it costs nothing to include in the same round trip.
-            api.watch(20),
-          ])
-          setHoldings(h)
-          setCandidates(c)
-          setBacktest(bt)
-          setWatch(w)
-        }
+        setHoldings(h)
+        setCandidates(c)
+        setBacktest(bt)
+        setWatch(w)
         setFatalError(null)
       } catch (e) {
         setFatalError(
@@ -110,11 +85,11 @@ export default function App() {
         setRefreshing(false)
       }
     },
-    // route.page, not route: opening a ticker leaves the page unchanged, so
-    // this callback keeps its identity, the effect below doesn't refire, and
-    // the dashboard's data survives in memory. Coming back from a detail
-    // view is then instant and costs no network.
-    [route.page],
+    // No route dependency: opening a ticker leaves this callback's identity
+    // alone, the effect below doesn't refire, and the dashboard's data
+    // survives in memory. Coming back from a detail view is then instant
+    // and costs no network.
+    [],
   )
 
   useEffect(() => {
@@ -159,7 +134,7 @@ export default function App() {
   }, [loadDetail])
 
   const openTicker = useCallback(
-    (ticker: string) => navigate({ page: 'donchian', ticker }),
+    (ticker: string) => navigate({ ticker }),
     [navigate],
   )
 
@@ -232,24 +207,8 @@ export default function App() {
             void loadDetail()
           }}
           refreshing={refreshing || detailRefreshing}
-          strategyLabel={
-            route.page === 'rsi' ? 'RSI(2) pullback · indexes & ETFs' : 'Donchian breakout'
-          }
-          lastUpdated={
-            route.page === 'rsi'
-              ? (status?.rsi_signals_last_updated ?? null)
-              : (status?.signals_last_updated ?? null)
-          }
+          lastUpdated={status?.signals_last_updated ?? null}
         />
-
-        {/* "Next strategy" is meaningless from a ticker page, so the detail
-            view gets a back link in the same slot instead. */}
-        {!route.ticker && (
-          <StrategyNav
-            route={route.page}
-            onNavigate={(page) => navigate({ page, ticker: null })}
-          />
-        )}
 
         {fatalError ? (
           <div
@@ -277,88 +236,45 @@ export default function App() {
             error={detailError}
             range={detailRange}
             onRangeChange={setDetailRange}
-            onBack={() => navigate({ page: 'donchian', ticker: null })}
+            onBack={() => navigate({ ticker: null })}
             onAdd={(t) => void addHolding(t, null).catch(() => {})}
             onRemove={(t) => void removeHolding(t)}
             busy={busyTicker === route.ticker}
           />
         ) : (
           <>
-            {/* The account is shared: one pot of money, sized the same way
-                whichever strategy proposed the trade. */}
-            {route.page === 'rsi' ? (
-              <>
-                <RsiExitAlert holdings={rsiHoldings} />
-                <RsiUniverseNote />
-                <AccountPanel account={account} loading={loading} onUpdate={updateAccount} />
-                <div className="grid gap-6 lg:grid-cols-2 items-start">
-                  <RsiHoldingsPanel
-                    holdings={rsiHoldings}
-                    loading={loading}
-                    busyTicker={busyTicker}
-                    onAdd={addHolding}
-                    onRemove={(t) => void removeHolding(t)}
-                    onUpdateShares={(t, s) => void updateShares(t, s)}
-                    addError={addError}
-                  />
-                  <RsiEntryCandidates
-                    candidates={rsiCandidates}
-                    loading={loading}
-                    onAdd={(t) => void addHolding(t, null).catch(() => {})}
-                    busyTicker={busyTicker}
-                  />
-                </div>
-                <BacktestPanel backtest={rsiBacktest} loading={loading} strategy="rsi" />
-              </>
-            ) : (
-              <>
-                <ExitAlert holdings={holdings} onSelectTicker={openTicker} />
-                <AccountPanel account={account} loading={loading} onUpdate={updateAccount} />
-                <div className="grid gap-6 lg:grid-cols-2 items-start">
-                  <HoldingsPanel
-                    holdings={holdings}
-                    loading={loading}
-                    busyTicker={busyTicker}
-                    onAdd={addHolding}
-                    onRemove={(t) => void removeHolding(t)}
-                    onUpdateShares={(t, s) => void updateShares(t, s)}
-                    onSelectTicker={openTicker}
-                    addError={addError}
-                  />
-                  <EntryCandidates
-                    candidates={candidates}
-                    loading={loading}
-                    onAdd={(t) => void addHolding(t, null).catch(() => {})}
-                    onSelectTicker={openTicker}
-                    busyTicker={busyTicker}
-                  />
-                </div>
-                {/* Below the measured panels on purpose: signals first,
-                    then unmeasured live context, then the measurement. */}
-                <IntradayWatch watch={watch} loading={loading} onSelectTicker={openTicker} />
-                <BacktestPanel backtest={backtest} loading={loading} />
-              </>
-            )}
+            <ExitAlert holdings={holdings} onSelectTicker={openTicker} />
+            <AccountPanel account={account} loading={loading} onUpdate={updateAccount} />
+            <div className="grid gap-6 lg:grid-cols-2 items-start">
+              <HoldingsPanel
+                holdings={holdings}
+                loading={loading}
+                busyTicker={busyTicker}
+                onAdd={addHolding}
+                onRemove={(t) => void removeHolding(t)}
+                onUpdateShares={(t, s) => void updateShares(t, s)}
+                onSelectTicker={openTicker}
+                addError={addError}
+              />
+              <EntryCandidates
+                candidates={candidates}
+                loading={loading}
+                onAdd={(t) => void addHolding(t, null).catch(() => {})}
+                onSelectTicker={openTicker}
+                busyTicker={busyTicker}
+              />
+            </div>
+            {/* Below the measured panels on purpose: signals first,
+                then unmeasured live context, then the measurement. */}
+            <IntradayWatch watch={watch} loading={loading} onSelectTicker={openTicker} />
+            <BacktestPanel backtest={backtest} loading={loading} />
           </>
         )}
 
         <footer className="mt-8 text-[11px] text-muted-foreground leading-relaxed">
-          {route.page === 'rsi' ? (
-            <>
-              Signals are computed once daily after the US close over liquid index, sector, style
-              and bond ETFs: buy when RSI(2) drops below 5 while price holds above its 200-day
-              average, sell when RSI(2) clears 70 or the close gets back above its 5-day average.
-              Position sizes come from the same account equity as the Donchian page, so a trade is
-              risked identically whichever strategy proposed it — but the exit rules differ, so a
-              holding flagged here may be a hold on the other page. Not investment advice.
-            </>
-          ) : (
-            <>
-              Signals are computed once daily after the US close from 55/20-day Donchian channels
-              and ATR(20). Position sizes are derived from your account equity above and update
-              immediately when you change it. Not investment advice.
-            </>
-          )}
+          Signals are computed once daily after the US close from 55/20-day Donchian channels and
+          ATR(20). Position sizes are derived from your account equity above and update
+          immediately when you change it. Not investment advice.
         </footer>
       </div>
     </div>

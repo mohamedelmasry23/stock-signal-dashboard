@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from app import pipeline
-from app.models import RsiSignal, Signal, Universe
+from app.models import Signal, Universe
 from app.pipeline import NEW_YORK, drop_in_progress_bar, previous_close
 from app.signals import compute_signal_frame
 
@@ -133,15 +133,13 @@ def test_a_run_during_the_session_stores_the_last_completed_close(db, monkeypatc
     the same number twice, rendering as a confident 0.00% day move."""
     monkeypatch.setattr(pipeline, "get_sp500_tickers", lambda: [])
     monkeypatch.setattr(pipeline, "get_extra_equity_tickers", lambda: [])
-    monkeypatch.setattr(pipeline, "get_commodity_tickers", lambda: [])
-    # VOO is in INDEX_ETF_TICKERS, so one ticker drives both strategies.
-    monkeypatch.setattr(pipeline, "get_index_etf_tickers", lambda: ["VOO"])
+    monkeypatch.setattr(pipeline, "get_commodity_tickers", lambda: ["VOO"])
     monkeypatch.setattr(
         pipeline, "market_now_et", lambda: datetime(2026, 8, 18, 11, 0, tzinfo=NEW_YORK)
     )
 
-    # 260 bars clears RSI's 200-day trend filter. The final bar is given an
-    # absurd close so any leak is unmistakable rather than marginal.
+    # The final bar is given an absurd close so any leak is unmistakable
+    # rather than marginal.
     df = frame_ending("2026-08-18", periods=260)
     df.iloc[-1, df.columns.get_loc("Close")] = 99_999.0
     df.iloc[-1, df.columns.get_loc("High")] = 99_999.0
@@ -159,9 +157,6 @@ def test_a_run_during_the_session_stores_the_last_completed_close(db, monkeypatc
     assert sig.atr == pytest.approx(float(expected["ATR"]))
     assert sig.donchian_low == pytest.approx(float(expected["DonchianLow_M"]))
 
-    rsi = db.query(RsiSignal).filter(RsiSignal.ticker == "VOO").one()
-    assert rsi.as_of_date == date(2026, 8, 17)
-
 
 # --- empty fetches and a missing S&P list ------------------------------
 
@@ -174,8 +169,7 @@ def one_etf_universe(monkeypatch):
     real pauses between fetches."""
     monkeypatch.setattr(pipeline, "get_sp500_tickers", lambda: [])
     monkeypatch.setattr(pipeline, "get_extra_equity_tickers", lambda: [])
-    monkeypatch.setattr(pipeline, "get_commodity_tickers", lambda: [])
-    monkeypatch.setattr(pipeline, "get_index_etf_tickers", lambda: ["VOO"])
+    monkeypatch.setattr(pipeline, "get_commodity_tickers", lambda: ["VOO"])
     monkeypatch.setattr(pipeline, "market_now_et", lambda: AFTER_CLOSE)
     monkeypatch.setattr(pipeline, "RETRY_PAUSE_SEC", 0)
     monkeypatch.setattr(pipeline, "PAUSE_BETWEEN_CHUNKS_SEC", 0)
@@ -256,7 +250,7 @@ def test_a_failed_sp500_fetch_reuses_the_stored_equities(db, one_etf_universe, c
     assert {"AAA", "BBB", "CCC"} <= set(fetched)
     out = capsys.readouterr().out
     assert "reusing the 3 equities stored by the last run" in out
-    assert "3 equities + 0 commodities" in out
+    assert "3 equities + 1 commodities" in out
 
 
 def test_a_successful_sp500_fetch_replaces_the_stored_list(db, one_etf_universe, monkeypatch, capsys):
