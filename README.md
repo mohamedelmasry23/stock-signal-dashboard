@@ -15,7 +15,7 @@ log says so.
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)
 ![React](https://img.shields.io/badge/React-19-61dafb)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6)
-![Tests](https://img.shields.io/badge/tests-325%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-329%20passing-brightgreen)
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -36,7 +36,7 @@ log says so.
 - **Production hardening for a laptop:** launchd scheduling, resistance to
   sleep and wake, a guard against unfinished bars, retries, and a log line
   per run that says plainly whether the run was healthy.
-- **325 tests**, none of which need network access.
+- **329 tests**, none of which need network access.
 
 ## What it does
 

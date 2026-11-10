@@ -43,6 +43,9 @@ done_line=$(grep -m1 '^\[watch\] Done\.' "$RAW" || true)
 above=$(printf '%s' "$done_line" | sed -n 's/.*Done\. \([0-9]*\) above.*/\1/p')
 fetched=$(printf '%s' "$done_line" | sed -n 's/.*, \([0-9]*\) of [0-9]* tickers fetched.*/\1/p')
 asked=$(printf '%s' "$done_line" | sed -n 's/.*of \([0-9]*\) tickers fetched.*/\1/p')
+# Reported on ok lines too, so a scan that only got through on its retry
+# (the Mac slept mid-scan) is visible rather than looking like any other.
+retry=$(grep -m1 '^\[watch\] Retry recovered' "$RAW" | sed -n 's/.*recovered \([0-9]* of [0-9]*\).*/\1/p' || true)
 
 if [ "$status" -ne 0 ]; then
     verdict="ERROR   scan exited $status"
@@ -58,7 +61,7 @@ elif [ -z "$above" ] || [ -z "$fetched" ]; then
 elif [ "${asked:-0}" -gt 0 ] && [ "$fetched" -lt $((asked / 2)) ]; then
     verdict="WARNING only ${fetched} of ${asked} tickers fetched — scan is half blind"
 else
-    verdict="ok      ${above} above, ${fetched} of ${asked} fetched"
+    verdict="ok      ${above} above, ${fetched} of ${asked} fetched${retry:+; retry recovered $retry}"
 fi
 
 printf '%s  %s\n' "$started" "$verdict" >> "$LOG"

@@ -58,6 +58,15 @@ from .timeutil import utcnow
 # times a day that is roughly a quarter of the payload for no loss.
 WATCH_PERIOD = "6mo"
 
+# Before the one retry pass over tickers whose download came back empty.
+# Same cause and same cure as pipeline.RETRY_PAUSE_SEC: a scan launched
+# from a battery DarkWake loses every in-flight download when the Mac drops
+# back to sleep two seconds later. `caffeinate -i -s` does not prevent that
+# (pmset log, 2026-11-10 12:31: the assertion was created and the Mac slept
+# anyway; 0 of 547 fetched). The process resumes when the Mac next wakes,
+# and the retry then finds the network back.
+RETRY_PAUSE_SEC = 10.0
+
 N_ENTRY = 55
 
 SESSION_OPEN_ET = time_of_day(9, 30)
@@ -237,25 +246,57 @@ def run_watch_scan(now_et: Optional[datetime] = None) -> None:
         observations: List[WatchObservation] = []
         fetched = 0
 
-        for i in range(0, len(tickers), CHUNK_SIZE):
-            chunk = tickers[i:i + CHUNK_SIZE]
-            print(f"[watch] Fetching {i + 1}-{i + len(chunk)} of {len(tickers)}...")
-            try:
-                data = _download_batch(chunk)
-            except Exception as e:  # noqa: BLE001 - one bad chunk must not end the scan
-                print(f"[watch] WARNING: batch fetch failed for this chunk ({e}); skipping.")
-                continue
-
-            for ticker in chunk:
-                obs = observe(ticker, data.get(ticker), now)
-                if obs is None:
+        def scan(batch: List[str], label: str) -> List[str]:
+            """Observes `batch` in chunks and returns the tickers whose
+            download came back empty. Only those are worth a retry:
+            `observe()` also returns None for a ticker that downloaded fine
+            but has no bar today (a holiday, a halt), and asking again
+            wouldn't change that."""
+            nonlocal fetched
+            empty: List[str] = []
+            for i in range(0, len(batch), CHUNK_SIZE):
+                chunk = batch[i:i + CHUNK_SIZE]
+                print(f"[watch] {label} {i + 1}-{i + len(chunk)} of {len(batch)}...")
+                try:
+                    data = _download_batch(chunk)
+                except Exception as e:  # noqa: BLE001 - one bad chunk must not end the scan
+                    print(f"[watch] WARNING: batch fetch failed for this chunk ({e}).")
+                    empty.extend(chunk)
                     continue
-                fetched += 1
-                if obs.price > obs.level:
-                    observations.append(obs)
 
-            if i + CHUNK_SIZE < len(tickers):
-                time.sleep(PAUSE_BETWEEN_CHUNKS_SEC)  # be polite to Yahoo's rate limits
+                for ticker in chunk:
+                    df = data.get(ticker)
+                    if df is None or df.empty:
+                        empty.append(ticker)
+                        continue
+                    obs = observe(ticker, df, now)
+                    if obs is None:
+                        continue
+                    fetched += 1
+                    if obs.price > obs.level:
+                        observations.append(obs)
+
+                if i + CHUNK_SIZE < len(batch):
+                    time.sleep(PAUSE_BETWEEN_CHUNKS_SEC)  # be polite to Yahoo's rate limits
+            return empty
+
+        missing = scan(tickers, "Fetching")
+
+        # One retry, once. Skipped if the session has closed in the
+        # meantime (the Mac can stay asleep for hours): after 16:05 ET the
+        # "in-progress" bar is a finished one, and observing it against a
+        # clock read before the close would take its high as the price.
+        if missing:
+            still_open = in_session(now if now_et is not None else market_now_et())
+            if still_open:
+                print(f"[watch] Retrying {len(missing)} ticker(s) that came back empty...")
+                time.sleep(RETRY_PAUSE_SEC)
+                before = fetched
+                scan(missing, "Retrying")
+                # Own line, not part of "Done." — the wrapper parses that one.
+                print(f"[watch] Retry recovered {fetched - before} of {len(missing)} ticker(s).")
+            else:
+                print(f"[watch] Session closed before a retry; {len(missing)} ticker(s) left empty.")
 
         # Wholesale replacement in one transaction, the way the pipeline
         # rewrites `universe`. A partial update would leave names on screen

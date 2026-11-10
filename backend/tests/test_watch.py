@@ -23,6 +23,7 @@ def no_network(monkeypatch):
     """Nothing in this module may reach Yahoo. A test that needs data
     overrides this with its own frames."""
     monkeypatch.setattr(watch, "_download_batch", lambda tickers: {})
+    monkeypatch.setattr(watch, "RETRY_PAUSE_SEC", 0.0)
 
 
 def frame_ending(end, periods=120, step=1.0, start=100.0, pad=1.0):
@@ -412,3 +413,82 @@ def test_the_days_move_is_derived_from_the_last_completed_close(client, db):
     db.commit()
 
     assert client.get("/api/watch").json()["items"][0]["change_percent"] == pytest.approx(10.0)
+
+
+# ---------------------------------------------------------------------------
+# The retry pass. 2026-11-10 12:31: a scan launched from a battery DarkWake
+# fetched 0 of 547 because the Mac slept again two seconds in.
+
+
+def _universe(db, *tickers):
+    for t in tickers:
+        db.add(models.Universe(ticker=t, asset_class="equity", active=True))
+    db.commit()
+
+
+def test_tickers_that_came_back_empty_are_fetched_again(db, monkeypatch, capsys):
+    _universe(db, "AAA", "BBB")
+    full = frame_ending("2026-08-19")
+    full.iloc[-1, full.columns.get_loc("Close")] = 9_999.0
+    calls = []
+
+    def download(tickers):
+        calls.append(list(tickers))
+        return {} if len(calls) == 1 else {t: full for t in tickers}
+
+    monkeypatch.setattr(watch, "_download_batch", download)
+    watch.run_watch_scan(now_et=MID_SESSION)
+
+    assert calls == [["AAA", "BBB"], ["AAA", "BBB"]]
+    assert {w.ticker for w in db.query(models.WatchItem).all()} == {"AAA", "BBB"}
+    assert watch.latest_scan(db).fetched == 2
+    out = capsys.readouterr().out
+    assert "Retry recovered 2 of 2 ticker(s)." in out
+    assert "2 of 2 tickers fetched." in out
+
+
+def test_a_failed_chunk_is_retried_rather_than_skipped(db, monkeypatch):
+    _universe(db, "AAA")
+    full = frame_ending("2026-08-19")
+    calls = []
+
+    def download(tickers):
+        calls.append(list(tickers))
+        if len(calls) == 1:
+            raise ConnectionError("network is down")
+        return {"AAA": full}
+
+    monkeypatch.setattr(watch, "_download_batch", download)
+    watch.run_watch_scan(now_et=MID_SESSION)
+
+    assert len(calls) == 2
+    assert watch.latest_scan(db).fetched == 1
+
+
+def test_a_ticker_that_downloaded_but_has_no_bar_today_is_not_retried(db, monkeypatch):
+    """A holiday or a halt: the data arrived, it just ends yesterday.
+    Asking Yahoo again can't change that."""
+    _universe(db, "AAA")
+    calls = []
+    yesterday = frame_ending("2026-08-18")
+    monkeypatch.setattr(watch, "_download_batch", lambda t: calls.append(t) or {"AAA": yesterday})
+
+    watch.run_watch_scan(now_et=MID_SESSION)
+
+    assert len(calls) == 1
+    assert watch.latest_scan(db).fetched == 0
+
+
+def test_no_retry_once_the_session_has_closed(db, monkeypatch, capsys):
+    """The Mac can sleep through the close. A retry after 16:05 ET would
+    observe a finished bar against a pre-close clock."""
+    _universe(db, "AAA")
+    clock = iter([MID_SESSION, datetime(2026, 8, 19, 16, 30, tzinfo=NEW_YORK)])
+    monkeypatch.setattr(watch, "market_now_et", lambda: next(clock))
+    calls = []
+    monkeypatch.setattr(watch, "_download_batch", lambda t: calls.append(t) or {})
+
+    watch.run_watch_scan()
+
+    assert len(calls) == 1
+    assert "Session closed before a retry" in capsys.readouterr().out
