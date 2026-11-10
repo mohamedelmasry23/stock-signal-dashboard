@@ -9,16 +9,22 @@ that consumes this API lives in `../frontend`.
 ```bash
 cd backend
 
-# 2. install dependencies (a virtualenv is recommended)
+# 1. install dependencies (a virtualenv is recommended)
 pip3 install -r requirements.txt
 
-# 3a. EASIEST WAY TO LOOK AROUND: seed fake data, no network/API keys needed
+# 2a. RECOMMENDED: start from the shipped snapshot of the real dashboard —
+#     real signals and every saved backtest, no holdings or account data.
+#     Never overwrites an existing data/real.db. See app/public_snapshot.py.
+python3 -m app.bootstrap
+uvicorn app.main:app --reload --port 8000
+
+# 2b. OR seed fake data: no network/API keys needed
 DEMO_MODE=true python3 -m app.seed_demo
 DEMO_MODE=true uvicorn app.main:app --reload --port 8000
 
-# 3b. OR, for real data: run the pipeline once (needs internet — pulls
-#     the S&P 500 list from Wikipedia and prices from Yahoo Finance),
-#     then start the API against real.db
+# 2c. OR build real data from nothing: run the pipeline (needs internet —
+#     pulls the S&P 500 list from Wikipedia and prices from Yahoo Finance).
+#     After 2a, this is also how signals get refreshed to today.
 python3 -m app.pipeline
 uvicorn app.main:app --reload --port 8000
 ```

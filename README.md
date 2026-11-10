@@ -15,7 +15,7 @@ log says so.
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)
 ![React](https://img.shields.io/badge/React-19-61dafb)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6)
-![Tests](https://img.shields.io/badge/tests-321%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-325%20passing-brightgreen)
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -36,7 +36,7 @@ log says so.
 - **Production hardening for a laptop:** launchd scheduling, resistance to
   sleep and wake, a guard against unfinished bars, retries, and a log line
   per run that says plainly whether the run was healthy.
-- **321 tests**, none of which need network access.
+- **325 tests**, none of which need network access.
 
 ## What it does
 
@@ -177,8 +177,40 @@ behind the trickier parts.
 
 ## Quickstart
 
-Demo mode needs no network and no API keys. It seeds a database with
-fictitious tickers so every screen has something to show:
+You need Python 3.12+ and Node 20+. Pick one of three ways to run it.
+
+### 1. The real dashboard (recommended)
+
+The repo ships a snapshot of the live dashboard's data: real signals for
+about 550 tickers, the watchlist, and every saved backtest. It has no
+holdings and no account details in it. To start from it:
+
+```bash
+cd backend && pip3 install -r requirements.txt
+python3 -m app.bootstrap          # copies the snapshot to data/real.db (never overwrites)
+python3 -m app.pipeline           # optional: refresh signals to today (a few minutes; needs internet)
+python3 -m uvicorn app.main:app --reload --port 8000
+```
+
+```bash
+cd frontend && npm install && npm run dev
+```
+
+Open http://localhost:5173. You'll see the same pages as in the
+screenshots: entry candidates, ticker charts, the RSI(2) page and both
+real backtests.
+
+- **Holdings:** yours start empty. Add your own and exit signals will
+  appear for them.
+- **Position sizes:** these are computed for a labelled $100,000
+  placeholder account until you enter your own cash in the Account panel.
+- **Stale signals:** if you skip the pipeline step, the header shows how
+  old the signals are.
+
+### 2. Demo mode (no network)
+
+This seeds a database with fictitious tickers, so you can click around
+offline:
 
 ```bash
 cd backend && pip3 install -r requirements.txt
@@ -186,13 +218,27 @@ DEMO_MODE=true python3 -m app.seed_demo
 DEMO_MODE=true python3 -m uvicorn app.main:app --reload --port 8000
 ```
 
-```bash
-cd frontend && npm install && npm run dev
-```
+Then start the frontend as above.
 
-Then open http://localhost:5173. For real market data, run
-`python3 -m app.pipeline` (a few minutes; needs internet) and start the
-backend without `DEMO_MODE`.
+### 3. Reproduce the backtests yourself
+
+The snapshot's backtests can be regenerated from scratch with
+`python3 -m app.backtest`. That downloads about 10 years of daily prices,
+so the first run is slow. The exact commands for each run are in
+[backend/README.md](backend/README.md#backtesting).
+
+### Refreshing the snapshot (maintainer)
+
+`python3 -m app.public_snapshot` rebuilds `backend/data/snapshot/dashboard.db`
+from your own `real.db`:
+
+- It deletes all holdings and account settings.
+- It blanks the stored share counts, which were sized to your equity.
+- It compacts the file so deleted rows don't linger in it.
+- It refuses to run if the database contains a table it doesn't recognise.
+
+Rebuild and commit after saving new backtests. That's occasional, not
+nightly.
 
 ## Tests
 

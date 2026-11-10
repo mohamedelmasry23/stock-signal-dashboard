@@ -34,3 +34,11 @@ data/watch.launchd.err.log
 # so a rebuilt sp500_constituents.csv could no longer be committed.
 data/*
 !data/universes/
+
+# The one database that IS committed: a scrubbed copy of real.db with no
+# holdings, no account settings and no equity-sized figures, built by
+# `python3 -m app.public_snapshot`. Re-included file by file (not the
+# directory) so a stray .tmp or -journal next to it stays ignored.
+!data/snapshot/
+data/snapshot/*
+!data/snapshot/dashboard.db
