@@ -18,13 +18,16 @@
 # outside 09:30-16:05 ET, so a fire outside the session is a no-op, not a
 # failure, and is logged as "skipped".
 #
-# Invoked by ~/Library/LaunchAgents/com.example.stock-tracker.watch.plist
+# Invoked by a launchd agent (~/Library/LaunchAgents/com.<you>.stock-tracker.watch.plist)
 # Safe to run by hand at any time.
 
 set -uo pipefail
 
-BACKEND="$HOME/Projects/stock-signal-dashboard/backend"
-PYTHON="/Library/Frameworks/Python.framework/Versions/3.14/bin/python3"
+# BACKEND is resolved from this script's own location, so the plist only
+# needs the script's absolute path. PYTHON can be overridden in the plist's
+# EnvironmentVariables; the default is the python.org framework install.
+BACKEND="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHON="${PYTHON:-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3}"
 LOG="$BACKEND/watch.log"
 RAW="$BACKEND/data/watch_last_run.txt"
 

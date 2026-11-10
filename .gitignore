@@ -28,3 +28,6 @@ dist/
 # holdings and account settings.
 backend/data/*.db
 backend/pipeline.log
+
+# Local AI-assistant briefing; kept out of the public repo.
+CLAUDE.md

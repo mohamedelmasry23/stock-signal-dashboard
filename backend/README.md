@@ -180,6 +180,10 @@ earlier measurements and remain accurate for what they measured.
 
 ### Results (2016-01 to 2026-08, 10 bps round-trip costs)
 
+*These are the earlier runs, kept because the gap between them is the
+survivorship-bias measurement. The current headline is the
+members-at-the-time run above: **164%** vs SPY's 353%.*
+
 | | S&P 500 (today's list) | S&P 500 (2016 list) | Commodities + ETFs | SPY buy & hold |
 |---|---|---|---|---|
 | Total return | 863% | **202%** | 148% | 353% |

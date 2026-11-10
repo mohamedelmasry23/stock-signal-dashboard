@@ -14,7 +14,7 @@
 # plainly whether the run was healthy. `tail pipeline.log` is then enough
 # to know.
 #
-# Invoked by ~/Library/LaunchAgents/com.example.stock-tracker.pipeline.plist
+# Invoked by a launchd agent (~/Library/LaunchAgents/com.<you>.stock-tracker.pipeline.plist)
 # Safe to run by hand at any time.
 
 set -uo pipefail
@@ -26,8 +26,11 @@ set -uo pipefail
 # Those are TCC-protected on macOS and a launchd agent has no access to
 # them — the job dies with "Operation not permitted" before it can log
 # anything at all. That is why this lives under ~/Projects.
-BACKEND="$HOME/Projects/stock-signal-dashboard/backend"
-PYTHON="/Library/Frameworks/Python.framework/Versions/3.14/bin/python3"
+# BACKEND is resolved from this script's own location, so the plist only
+# needs the script's absolute path. PYTHON can be overridden in the plist's
+# EnvironmentVariables; the default is the python.org framework install.
+BACKEND="$(cd "$(dirname "$0")/.." && pwd)"
+PYTHON="${PYTHON:-/Library/Frameworks/Python.framework/Versions/3.14/bin/python3}"
 LOG="$BACKEND/pipeline.log"
 RAW="$BACKEND/data/pipeline_last_run.txt"
 

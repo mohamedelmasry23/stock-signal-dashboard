@@ -1,20 +1,47 @@
 # Stock Signal Dashboard
 
-A personal trading-signal dashboard built around a Donchian channel
-breakout system. It tracks what you hold, tells you when a position has
-broken its exit level, and surfaces the strongest fresh breakouts across
-the S&P 500 and a set of commodity ETFs — sized to your actual account.
+A trading-signal dashboard and backtesting lab built around two mechanical
+strategies: a **Donchian channel breakout** across the S&P 500 and an
+**RSI(2) pullback** on index ETFs. It runs every evening on a schedule,
+tells you when something you hold has hit its exit, ranks the strongest new
+breakouts, and sizes each one to your account.
+
+It also measures itself. A backtester built on the same signal code
+replays both strategies over 2016–2026, and a research log records more
+than ten attempts to improve them. Most of those attempts failed, and the
+log says so.
 
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 ![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688)
 ![React](https://img.shields.io/badge/React-19-61dafb)
-![Tests](https://img.shields.io/badge/tests-107%20passing-brightgreen)
+![TypeScript](https://img.shields.io/badge/TypeScript-6-3178c6)
+![Tests](https://img.shields.io/badge/tests-321%20passing-brightgreen)
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+## Highlights
+
+- **Full stack:** a Python pipeline with FastAPI and SQLite, plus a React 19,
+  TypeScript and Tailwind v4 frontend. It has a demo mode that needs no
+  network or API keys.
+- **Point-in-time backtesting:** each company is traded only while it was
+  actually in the S&P 500. That removes most of the survivorship bias that
+  inflates naive backtests (863% becomes 164%).
+- **Look-ahead is prevented by construction:** signals read the decision bar
+  and fills happen on the next bar. Truncation-invariance tests fail if any
+  future value leaks into the past.
+- **Honest reporting:** results come as ranges with the reason for the
+  range. The dashboard shows where the strategy *loses* to buy-and-hold, and
+  where its own risk model is falsified.
+- **Production hardening for a laptop:** launchd scheduling, resistance to
+  sleep and wake, a guard against unfinished bars, retries, and a log line
+  per run that says plainly whether the run was healthy.
+- **321 tests**, none of which need network access.
 
 ## What it does
 
-A daily job pulls the current S&P 500 constituent list from Wikipedia and
-two years of daily prices for ~514 tickers from Yahoo Finance, then
-computes three levels per ticker:
+Every weekday after the US close, a pipeline pulls daily prices for about
+550 tickers from Yahoo Finance and computes, per ticker:
 
 | Level | Meaning |
 |---|---|
@@ -24,103 +51,134 @@ computes three levels per ticker:
 
 The dashboard then shows:
 
-- **Exit signals on your own holdings**, surfaced first and in red — the
-  thing you actually need to act on.
-- **The top 10 entry candidates**, ranked by how many ATRs past its
-  breakout level each close printed, excluding what you already own.
-- **Position sizes** computed so a stop-out costs a fixed fraction of your
-  equity.
+- **Exit signals on your holdings**, surfaced first and in red, because
+  they're what you actually need to act on.
+- **The top 10 entry candidates**, ranked by how many ATRs past the breakout
+  level each one closed, excluding anything you already own.
+- **Position sizes** chosen so that a stop-out costs a fixed fraction of
+  equity. They update the moment you change your cash or holdings.
+- **An intraday watchlist** that scans four times during the session for
+  tickers trading above their 55-day high. It's a heads-up only, and the UI
+  says so: the strategy decides on closes.
+- **A ticker page** for any symbol, with candles, the Donchian channel
+  shaded, and a marker on each bar where an entry or exit actually fired.
 
-Holdings are entered manually. The amount is recorded in whatever unit
-the ticker is quoted in, so bullion held by weight (`GC=F`, quoted per
-troy ounce) values correctly alongside ordinary shares.
+![Ticker detail](docs/screenshots/ticker.png)
+
+A second page runs **RSI(2) pullback**, a short-horizon mean-reversion
+strategy. It's the opposite of a breakout: it buys sharp dips in liquid
+index, sector and bond ETFs that are still above their 200-day average.
+
+![RSI(2) page](docs/screenshots/rsi.png)
 
 ## Does it work?
 
-There's a backtester, so this is measured rather than asserted
-(2016–2026, dividends reinvested, 10 bps round-trip costs):
+Measured over 2016–2026, with dividends reinvested and trading costs
+modelled:
 
-| | S&P 500 (today's list) | S&P 500 (2016 list) | Commodities + ETFs | SPY buy & hold |
-|---|---|---|---|---|
-| Total return | 863% | **202%** | 148% | 353% |
-| CAGR | 23.8% | 11.0% | 9.0% | 15.3% |
-| Max drawdown | −32.2% | **−52.0%** | −28.5% | −33.7% |
-| Sharpe | 1.04 | **0.47** | 0.58 | 0.89 |
+| | Donchian (S&P members at the time) | RSI(2) (index ETFs) | SPY buy & hold |
+|---|---|---|---|
+| Total return | 164% | 87% | 353% |
+| CAGR | 9.6% | 6.1% | 15.3% |
+| Max drawdown | −28.5% | **−9.2%** | −33.7% |
+| Sharpe | 0.63 | 0.61 | 0.89 |
+| Time invested | ~97% | ~19% | 100% |
 
-**The first two columns are the same strategy over the same decade.** The
-only difference is which companies it was allowed to trade — today's index
-membership versus membership as it stood in December 2015. That one change
-turns a strategy that beats SPY by 500 points into one that loses to it by
-150, and nearly doubles the worst drawdown.
+**Neither strategy beats buying and holding SPY over this decade.** The
+backtester exists to find that out, not to hide it.
 
-That gap is survivorship bias, and measuring it is the most valuable thing
-this backtester does. Neither column is the truth: today's list omits
-every company that failed, while the 2016 list omits every winner added
-since. The real answer lies between them — and SPY's 353% lies *inside*
-that range, so **the backtest cannot establish that this strategy beats
-buy-and-hold.**
+![Donchian backtest](docs/screenshots/backtest.png)
 
-Two further findings worth more than the returns:
+What the measurements found along the way:
 
-- **The strategy's own risk model is falsified.** It sizes each position so
-  a stop-out costs 1% of equity, but its only exit is the Donchian
-  breakdown — there's no stop order. Measured: 23.7% of losing trades lost
-  more than the 1% they were sized to risk; the worst lost 5.7× it.
-- **Adding the missing stop makes it worse.** A hard 2×ATR stop cuts return
-  from 863% to 167% and deepens max drawdown, because it exits positions
-  that would have recovered and pays for 234 extra round trips.
+- **Survivorship bias is most of the naive result.** Running the identical
+  strategy on *today's* S&P list gives 863%. Running it on the companies
+  that were actually members at each date gives 164%. Today's list lets
+  the backtest buy future winners before they joined the index.
+- **The strategy's own risk model is falsified.** It sizes positions so a
+  stop-out costs 1% of equity, but its only exit is the channel breakdown.
+  As a result, 23.8% of losing trades lost more than 1%, and the worst lost
+  3.9× that.
+- **RSI(2)'s edge is real, and costs decide it.** Frictionless, it returns
+  185% on single stocks. At retail costs on single stocks, it returns about
+  zero. On penny-spread index ETFs, it becomes a low-drawdown diversifier.
+  That's why its universe is baskets, not companies.
 
-Full numbers, cost sensitivity and caveats: [backend/README.md](backend/README.md#backtesting).
+![RSI(2) backtest](docs/screenshots/rsi-backtest.png)
+
+## Research log
+
+[`research/README.md`](research/README.md) records each experiment the same
+way: the hypothesis, the exact setup, the numbers, and what it means.
+Several experiments were pre-registered, meaning the success criteria were
+committed before any result was computed. A sample:
+
+| Experiment | Result |
+|---|---|
+| Short after two sell signals | −45% combined; the short leg alone −86% |
+| Sell the weakest holding to fund new breakouts | best variant 60% vs 164% |
+| Skip entries when volatility is abnormally high | 98% vs 164%; it blocks the *best* trades |
+| Trade S&P index additions on announcement | lowers return and Sharpe in every variant |
+| Liquidity-sweep reversal (ICT-style) on NQ futures, 1-minute data | flat (+0.035R/trade), after fixing a look-ahead leak that had made it look like +25R |
+| Three short strategies on the Donchian levels | all lose alone; none improves the long book |
+
+The overall conclusion: in 2016–2026, a stock breaking a low or failing at
+a high bounced about as often as it followed through. That's why seven
+different short rules all lost money.
 
 ## Design notes
 
-A few decisions that aren't obvious from the file listing:
+**The backtester reuses the live signal code.** A backtest with its own
+copy of the strategy stops describing the real system the moment either
+side changes. A dedicated engine for research variants is checked to
+reproduce the main engine to the cent with its additions switched off.
 
-**Position sizing is resolved at read time, not stored.** `stop_distance`
-is a market fact the pipeline computes; equity is not — it changes when
-you deposit, withdraw or trade, with no price moving. Keeping them apart
-means editing your cash balance re-sizes every suggestion immediately
-instead of waiting for the next daily run. Equity resolves in three tiers
-(explicit override → holdings + cash → a labelled placeholder) so the
-number on screen is never unexplained.
+**Position sizing is resolved at read time, not stored.** Stop distance is
+a market fact the pipeline computes. Equity isn't: it changes when you
+deposit or trade, with no price moving. Keeping them apart means editing
+your cash balance re-sizes every suggestion immediately.
+
+**Unfinished bars are dropped, not trusted.** The pipeline removes today's
+in-progress bar before computing anything. A run during market hours once
+stored a price that the close later moved, and signals are defined on
+closes.
 
 **A holding's amount is in the ticker's own quote unit.** Gold bullion is
-tracked as `GC=F` (COMEX gold, quoted per troy ounce) with ounces in the
-amount field, so `amount × price` is the real dollar value. Recording it
-as a share count of a gold ETF would drift, because an ETF share is a
-fraction of an ounce that shrinks as the fund's expenses accrue.
+tracked as `GC=F` (quoted per troy ounce) with ounces in the amount field.
+Converting it to gold-ETF shares would drift, because an ETF share
+represents a shrinking fraction of an ounce.
 
-**Timestamps are stored naive-UTC but served with an explicit `+00:00`.**
-SQLAlchemy's SQLite dialect strips tzinfo on write regardless, and a bare
-timestamp is read as *local* time by JavaScript's `Date()` — which would
-silently skew the frontend's stale-data check by the UTC offset.
-
-**Write access has three postures**, chosen by environment: open
-(localhost), API-key required (private deploy), or fully read-only (public
+**Write access has three postures, chosen by environment:** open
+(localhost), API-key required (private deploy), and read-only (public
 demo). The API prints which one is active at startup, because a
 misconfigured instance otherwise looks identical to a correct one.
 
-**The backtester reuses the live signal code rather than reimplementing
-it.** A backtest with its own copy of the strategy stops describing the
-system it's meant to measure the moment either side changes. Look-ahead is
-prevented structurally — signals are read from the *decision* bar and
-fills happen on the *execution* bar — and a truncation-invariance test
-fails if any future value leaks into an earlier equity point.
+**Timestamps are stored naive-UTC and served with an explicit `+00:00`.**
+JavaScript's `Date()` reads a bare timestamp as local time, which would
+silently skew the frontend's stale-data check.
 
 ## Layout
 
 ```
-backend/    FastAPI + SQLite: daily signal pipeline, backtester, REST API
-frontend/   React + TypeScript + Tailwind v4 dashboard
+backend/
+  app/            FastAPI app, daily pipeline, signals, intraday watch
+  app/backtest/   backtest engine, universes, metrics, reports
+  research/       one-off research harnesses (shorts, sweep reversal, …)
+  tests/          pytest suite (no network)
+  scripts/        launchd wrappers for the nightly run and intraday scans
+frontend/         React + TypeScript + Tailwind v4 dashboard
+research/         the research log
+docs/screenshots/
 ```
 
-Each has its own README with setup, endpoints, and the reasoning behind
-the trickier parts.
+[`backend/README.md`](backend/README.md) is the detailed lab notebook:
+setup, every endpoint, the full backtest methodology, and the reasoning
+behind the trickier parts.
 
 ## Quickstart
 
-Demo mode needs no network and no API keys — it seeds a fake database so
-every screen has something to show:
+Demo mode needs no network and no API keys. It seeds a database with
+fictitious tickers so every screen has something to show:
 
 ```bash
 cd backend && pip3 install -r requirements.txt
@@ -132,26 +190,44 @@ DEMO_MODE=true python3 -m uvicorn app.main:app --reload --port 8000
 cd frontend && npm install && npm run dev
 ```
 
-Open http://localhost:5173. For real market data, run
+Then open http://localhost:5173. For real market data, run
 `python3 -m app.pipeline` (a few minutes; needs internet) and start the
 backend without `DEMO_MODE`.
 
 ## Tests
 
 ```bash
-cd backend && pip3 install -r requirements-dev.txt && python3 -m pytest tests/ -q
+cd backend && pip3 install -r requirements.txt -r requirements-dev.txt && python3 -m pytest tests/ -q
 ```
 
-160 tests covering the signal math (including that the Donchian windows are
-shifted so today's high can't be part of the level it must break), the
-equity resolution tiers, per-ounce holdings, the backtest engine
-(look-ahead detection, capital rationing, off-by-one), the chart's price
-history (bands computed before the range is sliced, no partial bar ever
-carrying a signal), and the API — auth postures and validation included.
-No network access required.
+The tests cover:
+
+- the signal math, including that the Donchian windows are shifted so
+  today's high can't be part of the level it has to break
+- the backtest engine: look-ahead detection, capital rationing, off-by-one
+  errors
+- historical index membership, including correcting the source data's own
+  errors
+- the intraday watch and the unfinished-bar guard
+- the research harnesses
+- the API, including auth postures and validation
+
+## Data sources
+
+- **Prices:** Yahoo Finance, via `yfinance`.
+- **Historical S&P 500 membership:** a point-in-time workbook compiled
+  from the public [fja05680/sp500](https://github.com/fja05680/sp500)
+  dataset and Wikipedia's *List of S&P 500 companies* change log,
+  cross-checked against S&P Dow Jones Indices announcements. Its
+  methodology and known limitations are documented inside the workbook
+  (`backend/data/universes/sources/`).
 
 ## Disclaimer
 
-This is a personal tool for tracking a mechanical signal system. It is not
-investment advice, and the suggested position sizes are arithmetic, not a
-recommendation.
+This is a personal project for studying mechanical signal systems. It is
+not investment advice, and the suggested position sizes are arithmetic,
+not recommendations.
+
+## License
+
+[MIT](LICENSE)

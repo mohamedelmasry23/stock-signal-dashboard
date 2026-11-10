@@ -4,7 +4,8 @@
 
   launchd rather than cron, deliberately: cron silently SKIPS a job if the
   Mac was asleep at the scheduled time and never makes it up. This runs at
-  23:30 local (30 min after the US close, which is 16:00 ET = 23:00 here),
+  16:30 local (30 min after the US close; the Mac is on Eastern time
+  since late August 2026 — it was 23:30 when the Mac was on Athens time),
   and if the machine was asleep then, launchd runs it on the next wake
   instead of dropping it.
 
@@ -31,11 +32,11 @@
 
     <key>StartCalendarInterval</key>
     <array>
-        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
-        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
-        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
-        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
-        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>30</integer></dict>
     </array>
 
     <!-- Not RunAtLoad: loading this shouldn't kick off a multi-minute
